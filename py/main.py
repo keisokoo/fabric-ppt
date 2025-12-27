@@ -39,10 +39,10 @@ class FabricObject(BaseModel):
     originY: str = "center"
     width: Optional[float] = 100
     height: Optional[float] = 100
-    fill: str = "#000000"
-    stroke: str = ""
+    fill: Optional[str] = "#000000"
+    stroke: Optional[str] = ""
     strokeWidth: float = 0
-    text: str = ""
+    text: Optional[str] = ""
     fontSize: float = 16
     fontFamily: str = "Arial"
     fontWeight: str = "normal"
