@@ -383,11 +383,36 @@ const SlideCanvas = forwardRef<
 
             console.log("Loading image from:", imageUrl);
 
-            // Create new Image object with proper loading
+            // Create new Image object with retry logic
             const { FabricImage } = await import("fabric");
-            const newImg = await FabricImage.fromURL(imageUrl, {
-              crossOrigin: "anonymous",
-            });
+            let newImg;
+            let retries = 3;
+
+            while (retries > 0) {
+              try {
+                // Add cache busting parameter to ensure fresh load
+                const cacheBustUrl = `${imageUrl}?t=${Date.now()}`;
+                newImg = await FabricImage.fromURL(cacheBustUrl, {
+                  crossOrigin: "anonymous",
+                });
+                console.log("Image loaded successfully on attempt", 4 - retries);
+                break;
+              } catch (error) {
+                retries--;
+                if (retries > 0) {
+                  console.log(`Image load failed, retrying... (${retries} attempts left)`);
+                  // Wait a bit before retrying
+                  await new Promise(resolve => setTimeout(resolve, 200));
+                } else {
+                  console.error("Failed to load image after all retries:", error);
+                  throw error;
+                }
+              }
+            }
+
+            if (!newImg) {
+              throw new Error("Failed to create image object");
+            }
 
             // Apply the same properties from placeholder
             newImg.set({

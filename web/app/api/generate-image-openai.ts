@@ -1,5 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
 import { access, constants, mkdir, writeFile } from "fs/promises";
+import OpenAI from "openai";
 import { join } from "path";
 import type { ActionFunctionArgs } from "react-router";
 import { data } from "react-router";
@@ -55,8 +55,8 @@ export const action = async (args: ActionFunctionArgs) => {
       // File doesn't exist, continue with generation
     }
 
-    const ai = new GoogleGenAI({
-      apiKey: process.env.GOOGLE_API_KEY,
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
     });
 
     // Parse target dimensions
@@ -65,27 +65,20 @@ export const action = async (args: ActionFunctionArgs) => {
 
     console.log(`Generating image with target size: ${width}x${height}`);
 
-    // Generate image with timeout (60 seconds)
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error("Image generation timeout")), 60000);
+    // Generate image using DALL-E
+    const response = await openai.images.generate({
+      model: "gpt-image-1.5",
+      prompt: prompt,
+      n: 1,
     });
 
-    const response = await Promise.race([
-      ai.models.generateContent({
-        model: "gemini-2.5-flash-image",
-        contents: prompt,
-      }),
-      timeoutPromise,
-    ]);
-    let imageBuffer: Buffer<ArrayBuffer> | null = null;
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        imageBuffer = Buffer.from(part.inlineData.data as string, "base64");
-      }
-    }
-    if (!imageBuffer) {
+    const b64Image = response.data?.[0]?.b64_json;
+    if (!b64Image) {
       throw new Error("No image data received");
     }
+
+    // Convert base64 to buffer
+    const imageBuffer = Buffer.from(b64Image, "base64");
 
     // Resize image to target dimensions using sharp (cover mode)
     const resizedBuffer = await sharp(imageBuffer)
@@ -100,18 +93,6 @@ export const action = async (args: ActionFunctionArgs) => {
 
     // Save resized image to disk
     await writeFile(filepath, resizedBuffer);
-
-    // Verify file is fully written and accessible before responding
-    try {
-      await access(filepath, constants.R_OK);
-      // Small delay to ensure filesystem sync completes
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    } catch (err) {
-      console.error("File written but not immediately accessible:", err);
-      throw new Error("Failed to verify file accessibility");
-    }
-
-    console.log(`Image saved and verified: ${filename}`);
 
     // Return public URL path
     return data({
