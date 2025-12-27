@@ -29,8 +29,8 @@ class FabricObject(BaseModel):
     top: float
     originX: str = "center"
     originY: str = "center"
-    width: float = 100
-    height: float = 100
+    width: Optional[float] = 100
+    height: Optional[float] = 100
     fill: str = "#000000"
     stroke: str = ""
     strokeWidth: float = 0
@@ -44,6 +44,11 @@ class FabricObject(BaseModel):
     scaleX: float = 1.0
     scaleY: float = 1.0
     radius: float = 0
+    # Line 객체용 좌표 (optional)
+    x1: Optional[float] = None
+    x2: Optional[float] = None
+    y1: Optional[float] = None
+    y2: Optional[float] = None
 
 
 class FabricSlide(BaseModel):
@@ -218,6 +223,39 @@ def create_pptx_from_fabric(slides_data: List[FabricSlide]) -> str:
         # Add objects
         for obj in slide_data.objects:
             try:
+                # Handle Line type separately
+                if obj.type == "Line":
+                    # Line uses x1, y1, x2, y2 coordinates
+                    if obj.x1 is None or obj.y1 is None or obj.x2 is None or obj.y2 is None:
+                        print(f"⚠️  Skipping Line object with null coordinates")
+                        continue
+
+                    # Line 그리기 (connector 사용)
+                    x1_inches = fabric_to_inches(obj.left + obj.x1, is_width=True)
+                    y1_inches = fabric_to_inches(obj.top + obj.y1, is_width=False)
+                    x2_inches = fabric_to_inches(obj.left + obj.x2, is_width=True)
+                    y2_inches = fabric_to_inches(obj.top + obj.y2, is_width=False)
+
+                    # PowerPoint에서는 connector를 사용하여 선 그리기
+                    connector = slide.shapes.add_connector(
+                        1,  # Straight connector
+                        x1_inches,
+                        y1_inches,
+                        x2_inches,
+                        y2_inches,
+                    )
+
+                    stroke_rgb, stroke_alpha = hex_to_rgb_alpha(obj.stroke)
+                    connector.line.color.rgb = RGBColor(*stroke_rgb)
+                    connector.line.width = Pt(obj.strokeWidth)
+                    set_line_opacity(connector, stroke_alpha * obj.opacity)
+                    continue
+
+                # For non-Line objects, width and height are required
+                if obj.width is None or obj.height is None:
+                    print(f"⚠️  Skipping {obj.type} object with null dimensions")
+                    continue
+
                 # Calculate actual dimensions with scale
                 actual_width = obj.width * obj.scaleX
                 actual_height = obj.height * obj.scaleY

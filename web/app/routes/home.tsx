@@ -1,5 +1,11 @@
 import { Canvas } from "fabric";
-import { useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { Form } from "react-router";
 import type { Route } from "./+types/home";
 
@@ -16,7 +22,12 @@ interface Slide {
   prompt: string;
 }
 
+export interface SlideCanvasRef {
+  getCanvasJSON: () => any;
+}
+
 export default function Home() {
+  const slideCanvasRefs = useRef<Map<number, SlideCanvasRef>>(new Map());
   const [slides, setSlides] = useState<Slide[]>([
     {
       id: 1,
@@ -88,28 +99,6 @@ export default function Home() {
             scaleX: 1,
             scaleY: 1,
             radius: 180,
-          },
-          {
-            type: "Line",
-            left: 0,
-            top: 0,
-            originX: "left",
-            originY: "top",
-            width: 0,
-            height: 0,
-            fill: "#00000000",
-            stroke: "#2D7FFF",
-            strokeWidth: 6,
-            text: "",
-            fontSize: 0,
-            fontFamily: "Helvetica",
-            fontWeight: "normal",
-            textAlign: "left",
-            opacity: 0.9,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
           },
           {
             type: "Rect",
@@ -349,13 +338,25 @@ export default function Home() {
     setError(null);
 
     try {
+      // 각 캔버스에서 현재 편집된 JSON 가져오기
+      const currentSlides = slides.map((slide) => {
+        const canvasRef = slideCanvasRefs.current.get(slide.id);
+        if (canvasRef) {
+          // 캔버스에서 현재 상태를 JSON으로 추출
+          return canvasRef.getCanvasJSON();
+        }
+        // 캔버스 ref가 없으면 원본 JSON 사용
+        return slide.fabricJson;
+      });
+      console.log(currentSlides);
+
       const response = await fetch("http://localhost:8731/convert", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          slides: slides.map((slide) => slide.fabricJson),
+          slides: currentSlides,
         }),
       });
 
@@ -499,6 +500,13 @@ export default function Home() {
             slides.map((slide, index) => (
               <SlideCanvas
                 key={slide.id}
+                ref={(ref) => {
+                  if (ref) {
+                    slideCanvasRefs.current.set(slide.id, ref);
+                  } else {
+                    slideCanvasRefs.current.delete(slide.id);
+                  }
+                }}
                 slideNumber={index + 1}
                 fabricJson={slide.fabricJson}
                 prompt={slide.prompt}
@@ -511,17 +519,26 @@ export default function Home() {
   );
 }
 
-function SlideCanvas({
-  slideNumber,
-  fabricJson,
-  prompt,
-}: {
-  slideNumber: number;
-  fabricJson: any;
-  prompt: string;
-}) {
+const SlideCanvas = forwardRef<
+  SlideCanvasRef,
+  {
+    slideNumber: number;
+    fabricJson: any;
+    prompt: string;
+  }
+>(({ slideNumber, fabricJson, prompt }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fabricCanvasRef = useRef<Canvas | null>(null);
+
+  // 부모 컴포넌트에서 호출할 수 있는 메서드 노출
+  useImperativeHandle(ref, () => ({
+    getCanvasJSON: () => {
+      if (fabricCanvasRef.current) {
+        return fabricCanvasRef.current.toJSON();
+      }
+      return fabricJson;
+    },
+  }));
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -575,4 +592,4 @@ function SlideCanvas({
       <p className="text-xs text-gray-400 mt-2">1280 x 720px</p>
     </div>
   );
-}
+});
