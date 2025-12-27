@@ -1,0 +1,13 @@
+[project]
+name = "fabric-ppt-py"
+version = "0.1.0"
+description = "Fabric PPT Python library"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.127.1",
+    "lxml>=6.0.2",
+    "python-multipart>=0.0.21",
+    "python-pptx>=1.0.2",
+    "uvicorn>=0.40.0",
+]

@@ -1,0 +1,384 @@
+import os
+import tempfile
+from typing import Any, List, Optional
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Inches, Pt
+from pydantic import BaseModel
+
+app = FastAPI()
+
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 개발 환경에서는 모든 origin 허용
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class FabricObject(BaseModel):
+    type: str
+    left: float
+    top: float
+    originX: str = "center"
+    originY: str = "center"
+    width: float = 100
+    height: float = 100
+    fill: str = "#000000"
+    stroke: str = ""
+    strokeWidth: float = 0
+    text: str = ""
+    fontSize: float = 16
+    fontFamily: str = "Arial"
+    fontWeight: str = "normal"
+    textAlign: str = "left"
+    opacity: float = 1.0
+    angle: float = 0
+    scaleX: float = 1.0
+    scaleY: float = 1.0
+    radius: float = 0
+
+
+class FabricSlide(BaseModel):
+    version: str
+    objects: List[FabricObject]
+    background: str = "#ffffff"
+
+
+class ConvertRequest(BaseModel):
+    slides: List[FabricSlide]
+
+
+def hex_to_rgb_alpha(hex_color: str) -> tuple:
+    """Convert hex color to (RGB, alpha) tuple
+    Returns: ((R, G, B), alpha_0_to_1)
+    """
+    hex_color = hex_color.lstrip("#")
+
+    if len(hex_color) >= 6:
+        rgb = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+
+        # Check if alpha channel is present (8 characters: #RRGGBBAA)
+        if len(hex_color) == 8:
+            alpha_hex = int(hex_color[6:8], 16)
+            alpha = alpha_hex / 255.0  # Convert to 0-1 range
+            return (rgb, alpha)
+        else:
+            return (rgb, 1.0)  # Fully opaque
+
+    return ((0, 0, 0), 1.0)
+
+
+def set_shape_opacity(shape, opacity: float):
+    """Set shape fill opacity (0-1) using lxml manipulation
+
+    Args:
+        shape: PowerPoint shape object
+        opacity: Opacity value (0=transparent, 1=opaque)
+    """
+    if opacity >= 1.0:
+        return
+
+    try:
+        from lxml import etree
+
+        # PowerPoint uses 0-100000 scale where 100000 = fully opaque
+        alpha_value = int(opacity * 100000)
+
+        # Access spPr (shape properties) -> solidFill -> srgbClr
+        spPr = shape.element.spPr
+
+        # Find solidFill element
+        solid_fill = spPr.find(
+            ".//{http://schemas.openxmlformats.org/drawingml/2006/main}solidFill"
+        )
+
+        if solid_fill is not None:
+            # Find srgbClr element
+            srgb_clr = solid_fill.find(
+                ".//{http://schemas.openxmlformats.org/drawingml/2006/main}srgbClr"
+            )
+
+            if srgb_clr is not None:
+                # Remove existing alpha elements if any
+                for alpha_elem in srgb_clr.findall(
+                    ".//{http://schemas.openxmlformats.org/drawingml/2006/main}alpha"
+                ):
+                    srgb_clr.remove(alpha_elem)
+
+                # Add new alpha element
+                alpha_elem = etree.Element(
+                    "{http://schemas.openxmlformats.org/drawingml/2006/main}alpha"
+                )
+                alpha_elem.set("val", str(alpha_value))
+                srgb_clr.append(alpha_elem)
+
+                print(f"✅ Set fill opacity to {opacity} (alpha={alpha_value})")
+
+    except Exception as e:
+        print(f"❌ Could not set fill opacity: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
+def set_line_opacity(shape, opacity: float):
+    """Set shape line/stroke opacity (0-1) using lxml manipulation
+
+    Args:
+        shape: PowerPoint shape object
+        opacity: Opacity value (0=transparent, 1=opaque)
+    """
+    if opacity >= 1.0:
+        return
+
+    try:
+        from lxml import etree
+
+        # PowerPoint uses 0-100000 scale where 100000 = fully opaque
+        alpha_value = int(opacity * 100000)
+
+        # Access spPr (shape properties) -> ln (line) -> solidFill -> srgbClr
+        spPr = shape.element.spPr
+
+        # Find ln (line) element
+        ln = spPr.find(".//{http://schemas.openxmlformats.org/drawingml/2006/main}ln")
+
+        if ln is not None:
+            # Find solidFill within ln
+            solid_fill = ln.find(
+                ".//{http://schemas.openxmlformats.org/drawingml/2006/main}solidFill"
+            )
+
+            if solid_fill is not None:
+                # Find srgbClr element
+                srgb_clr = solid_fill.find(
+                    ".//{http://schemas.openxmlformats.org/drawingml/2006/main}srgbClr"
+                )
+
+                if srgb_clr is not None:
+                    # Remove existing alpha elements if any
+                    for alpha_elem in srgb_clr.findall(
+                        ".//{http://schemas.openxmlformats.org/drawingml/2006/main}alpha"
+                    ):
+                        srgb_clr.remove(alpha_elem)
+
+                    # Add new alpha element
+                    alpha_elem = etree.Element(
+                        "{http://schemas.openxmlformats.org/drawingml/2006/main}alpha"
+                    )
+                    alpha_elem.set("val", str(alpha_value))
+                    srgb_clr.append(alpha_elem)
+
+                    print(f"✅ Set line opacity to {opacity} (alpha={alpha_value})")
+
+    except Exception as e:
+        print(f"❌ Could not set line opacity: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
+def fabric_to_inches(value: float, is_width: bool = True) -> Inches:
+    """Convert Fabric.js pixels to PowerPoint inches
+    1280px = 10 inches (width)
+    720px = 5.625 inches (height)
+    """
+    if is_width:
+        return Inches(value * 10 / 1280)
+    else:
+        return Inches(value * 5.625 / 720)
+
+
+def create_pptx_from_fabric(slides_data: List[FabricSlide]) -> str:
+    """Convert Fabric.js JSON array to PowerPoint file"""
+    prs = Presentation()
+    prs.slide_width = Inches(10)  # 1280px -> 10 inches
+    prs.slide_height = Inches(5.625)  # 720px -> 5.625 inches (16:9 ratio)
+
+    for slide_data in slides_data:
+        slide_layout = prs.slide_layouts[6]  # Blank layout
+        slide = prs.slides.add_slide(slide_layout)
+
+        # Set background color
+        background = slide.background
+        fill = background.fill
+        fill.solid()
+        rgb, alpha = hex_to_rgb_alpha(slide_data.background)
+        fill.fore_color.rgb = RGBColor(*rgb)
+        # Note: Background alpha is typically not supported in PowerPoint
+
+        # Add objects
+        for obj in slide_data.objects:
+            try:
+                # Calculate actual dimensions with scale
+                actual_width = obj.width * obj.scaleX
+                actual_height = obj.height * obj.scaleY
+
+                # Calculate position (adjust for origin)
+                # Fabric.js uses center origin by default in v7
+                left = obj.left
+                top = obj.top
+
+                if obj.originX == "center":
+                    left -= actual_width / 2
+                elif obj.originX == "right":
+                    left -= actual_width
+
+                if obj.originY == "center":
+                    top -= actual_height / 2
+                elif obj.originY == "bottom":
+                    top -= actual_height
+
+                # Convert to inches
+                left_inches = fabric_to_inches(left, is_width=True)
+                top_inches = fabric_to_inches(top, is_width=False)
+                width_inches = fabric_to_inches(actual_width, is_width=True)
+                height_inches = fabric_to_inches(actual_height, is_width=False)
+
+                if obj.type == "Textbox":
+                    textbox = slide.shapes.add_textbox(
+                        left_inches, top_inches, width_inches, height_inches
+                    )
+                    text_frame = textbox.text_frame
+                    text_frame.word_wrap = True
+                    text_frame.text = obj.text
+
+                    # Adjust vertical alignment and margins
+                    text_frame.margin_top = Inches(0)
+                    text_frame.margin_bottom = Inches(0)
+                    text_frame.margin_left = Inches(0)
+                    text_frame.margin_right = Inches(0)
+
+                    # Set text properties
+                    for paragraph in text_frame.paragraphs:
+                        # Convert font size from Fabric.js pixels to PowerPoint points
+                        # Fabric.js uses pixels, PPT uses points (1 point ≈ 1.333 pixels)
+                        # Scale factor: (10 inches / 1280 px) * 72 points/inch ≈ 0.5625
+                        ppt_font_size = obj.fontSize * 0.5625
+                        paragraph.font.size = Pt(ppt_font_size)
+                        paragraph.font.name = obj.fontFamily
+                        paragraph.font.bold = obj.fontWeight == "bold"
+
+                        # Set line spacing to 1.0 (single spacing)
+                        # Default is usually 1.15-1.2 in PowerPoint
+                        paragraph.line_spacing = 1.0
+
+                        # Text alignment
+                        if obj.textAlign == "center":
+                            paragraph.alignment = PP_ALIGN.CENTER
+                        elif obj.textAlign == "right":
+                            paragraph.alignment = PP_ALIGN.RIGHT
+                        else:
+                            paragraph.alignment = PP_ALIGN.LEFT
+
+                        # Text color (with alpha channel support)
+                        rgb, alpha = hex_to_rgb_alpha(obj.fill)
+                        paragraph.font.color.rgb = RGBColor(*rgb)
+                        # Note: Text color alpha is not fully supported in python-pptx
+
+                elif obj.type == "Rect":
+                    shape = slide.shapes.add_shape(
+                        1,  # Rectangle shape type
+                        left_inches,
+                        top_inches,
+                        width_inches,
+                        height_inches,
+                    )
+                    # Fill (with alpha channel from color)
+                    shape.fill.solid()
+                    rgb, color_alpha = hex_to_rgb_alpha(obj.fill)
+                    shape.fill.fore_color.rgb = RGBColor(*rgb)
+
+                    # Apply combined opacity: color alpha * object opacity
+                    combined_opacity = color_alpha * obj.opacity
+                    set_shape_opacity(shape, combined_opacity)
+
+                    # Stroke (with alpha channel)
+                    if obj.stroke and obj.strokeWidth > 0:
+                        stroke_rgb, stroke_alpha = hex_to_rgb_alpha(obj.stroke)
+                        shape.line.color.rgb = RGBColor(*stroke_rgb)
+                        shape.line.width = Pt(obj.strokeWidth)
+                        # Apply stroke opacity
+                        set_line_opacity(shape, stroke_alpha * obj.opacity)
+                    else:
+                        shape.line.fill.background()
+
+                elif obj.type == "Circle":
+                    # Use oval shape for circles
+                    # radius is already in pixels
+                    diameter = obj.radius * 2 * obj.scaleX
+                    diameter_inches = fabric_to_inches(diameter, is_width=True)
+
+                    shape = slide.shapes.add_shape(
+                        9,  # Oval shape type
+                        left_inches,
+                        top_inches,
+                        diameter_inches,
+                        diameter_inches,
+                    )
+                    shape.fill.solid()
+                    rgb, color_alpha = hex_to_rgb_alpha(obj.fill)
+                    shape.fill.fore_color.rgb = RGBColor(*rgb)
+
+                    # Apply combined opacity: color alpha * object opacity
+                    combined_opacity = color_alpha * obj.opacity
+                    set_shape_opacity(shape, combined_opacity)
+
+                    if obj.stroke and obj.strokeWidth > 0:
+                        stroke_rgb, stroke_alpha = hex_to_rgb_alpha(obj.stroke)
+                        shape.line.color.rgb = RGBColor(*stroke_rgb)
+                        shape.line.width = Pt(obj.strokeWidth)
+                        # Apply stroke opacity
+                        set_line_opacity(shape, stroke_alpha * obj.opacity)
+                    else:
+                        shape.line.fill.background()
+
+            except Exception as e:
+                print(f"Error processing object {obj.type}: {e}")
+                continue
+
+    # Save to temporary file
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pptx")
+    prs.save(temp_file.name)
+    temp_file.close()
+
+    return temp_file.name
+
+
+@app.get("/")
+def read_root():
+    return {"message": "Fabric PPT API Server"}
+
+
+@app.post("/convert")
+async def convert_to_pptx(request: ConvertRequest):
+    """Convert Fabric.js JSON array to PowerPoint file"""
+    try:
+        if not request.slides:
+            raise HTTPException(status_code=400, detail="No slides provided")
+
+        pptx_path = create_pptx_from_fabric(request.slides)
+
+        return FileResponse(
+            pptx_path,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            filename="presentation.pptx",
+            background=None,
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8731)
