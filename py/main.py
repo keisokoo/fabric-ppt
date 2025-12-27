@@ -1,7 +1,10 @@
 import os
 import tempfile
+from io import BytesIO
 from typing import Any, List, Optional
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -21,6 +24,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class ImageData(BaseModel):
+    imagePrompt: str
+    isPlaceholder: bool
 
 
 class FabricObject(BaseModel):
@@ -49,6 +57,10 @@ class FabricObject(BaseModel):
     x2: Optional[float] = None
     y1: Optional[float] = None
     y2: Optional[float] = None
+    # Image 객체용 필드 (optional)
+    src: Optional[str] = None
+    crossOrigin: Optional[str] = None
+    data: Optional[ImageData] = None
 
 
 class FabricSlide(BaseModel):
@@ -202,7 +214,41 @@ def fabric_to_inches(value: float, is_width: bool = True) -> Inches:
         return Inches(value * 5.625 / 720)
 
 
-def create_pptx_from_fabric(slides_data: List[FabricSlide]) -> str:
+async def download_image(url: str) -> BytesIO:
+    """Download image from URL or load from local file and return as BytesIO object
+
+    Args:
+        url: Image URL or local path (e.g., /upload/images/xxx.png)
+
+    Returns:
+        BytesIO object containing image data
+    """
+    # Check if it's a local path (starts with /upload/)
+    if url.startswith("/upload/"):
+        # Local file path - convert to absolute path
+        # Assuming the web server is running in the project root
+        # /upload/images/xxx.png -> ../web/public/upload/images/xxx.png
+        local_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),  # Go up from py/ to project root
+            "web",
+            "public",
+            url.lstrip("/"),
+        )
+
+        if os.path.exists(local_path):
+            with open(local_path, "rb") as f:
+                return BytesIO(f.read())
+        else:
+            raise FileNotFoundError(f"Local image file not found: {local_path}")
+
+    # Remote URL - download via HTTP
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return BytesIO(response.content)
+
+
+async def create_pptx_from_fabric(slides_data: List[FabricSlide]) -> str:
     """Convert Fabric.js JSON array to PowerPoint file"""
     prs = Presentation()
     prs.slide_width = Inches(10)  # 1280px -> 10 inches
@@ -379,6 +425,39 @@ def create_pptx_from_fabric(slides_data: List[FabricSlide]) -> str:
                     else:
                         shape.line.fill.background()
 
+                elif obj.type == "Image":
+                    # Image 객체 처리
+                    # Check if it's a placeholder image that wasn't generated
+                    if obj.data and obj.data.isPlaceholder:
+                        print(
+                            f"⚠️  Skipping placeholder image (not generated): {obj.data.imagePrompt[:50]}..."
+                        )
+                        continue
+
+                    if not obj.src:
+                        print(f"⚠️  Skipping Image object without src")
+                        continue
+
+                    try:
+                        # Download image from URL or load from local file
+                        image_stream = await download_image(obj.src)
+
+                        # Add image to slide
+                        picture = slide.shapes.add_picture(
+                            image_stream, left_inches, top_inches, width_inches, height_inches
+                        )
+
+                        # Apply rotation if needed
+                        if obj.angle != 0:
+                            picture.rotation = obj.angle
+
+                        print(f"✅ Added image from {obj.src[:50]}...")
+
+                    except Exception as img_error:
+                        print(f"❌ Failed to add image from {obj.src}: {img_error}")
+                        # Continue processing other objects even if image fails
+                        continue
+
             except Exception as e:
                 print(f"Error processing object {obj.type}: {e}")
                 continue
@@ -403,7 +482,7 @@ async def convert_to_pptx(request: ConvertRequest):
         if not request.slides:
             raise HTTPException(status_code=400, detail="No slides provided")
 
-        pptx_path = create_pptx_from_fabric(request.slides)
+        pptx_path = await create_pptx_from_fabric(request.slides)
 
         return FileResponse(
             pptx_path,

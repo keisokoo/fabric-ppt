@@ -7,7 +7,9 @@ import {
   useState,
 } from "react";
 import { Form } from "react-router";
+import { ulid } from "ulid";
 import type { Route } from "./+types/home";
+import { sample } from "./sample";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -17,7 +19,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 interface Slide {
-  id: number;
+  id: string;
   fabricJson: any;
   prompt: string;
 }
@@ -27,261 +29,8 @@ export interface SlideCanvasRef {
 }
 
 export default function Home() {
-  const slideCanvasRefs = useRef<Map<number, SlideCanvasRef>>(new Map());
-  const [slides, setSlides] = useState<Slide[]>([
-    {
-      id: 1,
-      fabricJson: {
-        version: "7.0.0",
-        objects: [
-          {
-            type: "Rect",
-            left: 640,
-            top: 360,
-            originX: "center",
-            originY: "center",
-            width: 1280,
-            height: 720,
-            fill: "#0B1020",
-            stroke: "#00000000",
-            strokeWidth: 0,
-            text: "",
-            fontSize: 0,
-            fontFamily: "Helvetica",
-            fontWeight: "normal",
-            textAlign: "left",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
-          },
-          {
-            type: "Circle",
-            left: 1080,
-            top: 160,
-            originX: "center",
-            originY: "center",
-            width: 520,
-            height: 520,
-            fill: "#2D7FF933",
-            stroke: "#2D7FFF66",
-            strokeWidth: 2,
-            text: "",
-            fontSize: 0,
-            fontFamily: "Helvetica",
-            fontWeight: "normal",
-            textAlign: "left",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 260,
-          },
-          {
-            type: "Circle",
-            left: 1120,
-            top: 520,
-            originX: "center",
-            originY: "center",
-            width: 360,
-            height: 360,
-            fill: "#12B3A833",
-            stroke: "#12B3A866",
-            strokeWidth: 2,
-            text: "",
-            fontSize: 0,
-            fontFamily: "Helvetica",
-            fontWeight: "normal",
-            textAlign: "left",
-            opacity: 0.95,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 180,
-          },
-          {
-            type: "Rect",
-            left: 86,
-            top: 170,
-            originX: "left",
-            originY: "top",
-            width: 8,
-            height: 220,
-            fill: "#2D7FFF",
-            stroke: "#00000000",
-            strokeWidth: 0,
-            text: "",
-            fontSize: 0,
-            fontFamily: "Helvetica",
-            fontWeight: "normal",
-            textAlign: "left",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
-          },
-          {
-            type: "Textbox",
-            left: 110,
-            top: 170,
-            originX: "left",
-            originY: "top",
-            width: 820,
-            height: 240,
-            fill: "#F3F7FF",
-            stroke: "#00000000",
-            strokeWidth: 0,
-            text: "AI 기반\n스마트 팩토리 솔루션",
-            fontSize: 64,
-            fontFamily: "Helvetica",
-            fontWeight: "bold",
-            textAlign: "left",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
-          },
-          {
-            type: "Rect",
-            left: 110,
-            top: 430,
-            originX: "left",
-            originY: "top",
-            width: 740,
-            height: 64,
-            fill: "#FFFFFF12",
-            stroke: "#FFFFFF22",
-            strokeWidth: 1,
-            text: "",
-            fontSize: 0,
-            fontFamily: "Helvetica",
-            fontWeight: "normal",
-            textAlign: "left",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
-          },
-          {
-            type: "Textbox",
-            left: 134,
-            top: 446,
-            originX: "left",
-            originY: "top",
-            width: 700,
-            height: 40,
-            fill: "#CFE2FF",
-            stroke: "#00000000",
-            strokeWidth: 0,
-            text: "제조업의 미래를 여는 기술",
-            fontSize: 30,
-            fontFamily: "Helvetica",
-            fontWeight: "normal",
-            textAlign: "left",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
-          },
-          {
-            type: "Rect",
-            left: 0,
-            top: 636,
-            originX: "left",
-            originY: "top",
-            width: 1280,
-            height: 84,
-            fill: "#00000026",
-            stroke: "#00000000",
-            strokeWidth: 0,
-            text: "",
-            fontSize: 0,
-            fontFamily: "Helvetica",
-            fontWeight: "normal",
-            textAlign: "left",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
-          },
-          {
-            type: "Textbox",
-            left: 90,
-            top: 662,
-            originX: "left",
-            originY: "top",
-            width: 520,
-            height: 34,
-            fill: "#FFFFFFCC",
-            stroke: "#00000000",
-            strokeWidth: 0,
-            text: "SMART FACTORY • AI • AUTOMATION",
-            fontSize: 18,
-            fontFamily: "Helvetica",
-            fontWeight: "bold",
-            textAlign: "left",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
-          },
-          {
-            type: "Textbox",
-            left: 1190,
-            top: 660,
-            originX: "right",
-            originY: "top",
-            width: 140,
-            height: 36,
-            fill: "#FFFFFFE6",
-            stroke: "#00000000",
-            strokeWidth: 0,
-            text: "#1",
-            fontSize: 22,
-            fontFamily: "Helvetica",
-            fontWeight: "bold",
-            textAlign: "right",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
-          },
-          {
-            type: "Rect",
-            left: 84,
-            top: 608,
-            originX: "left",
-            originY: "top",
-            width: 1112,
-            height: 2,
-            fill: "#2D7FFF66",
-            stroke: "#00000000",
-            strokeWidth: 0,
-            text: "",
-            fontSize: 0,
-            fontFamily: "Helvetica",
-            fontWeight: "normal",
-            textAlign: "left",
-            opacity: 1,
-            angle: 0,
-            scaleX: 1,
-            scaleY: 1,
-            radius: 0,
-          },
-        ],
-        background: "#0B1020",
-      },
-      prompt: "AI 기반 스마트 팩토리 솔루션",
-    },
-  ]);
+  const slideCanvasRefs = useRef<Map<string, SlideCanvasRef>>(new Map());
+  const [slides, setSlides] = useState<Slide[]>([sample]);
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -314,7 +63,7 @@ export default function Home() {
       setSlides((prev) => [
         ...prev,
         {
-          id: Date.now(),
+          id: ulid(),
           fabricJson: result.slide,
           prompt: prompt,
         },
@@ -507,6 +256,7 @@ export default function Home() {
                     slideCanvasRefs.current.delete(slide.id);
                   }
                 }}
+                slideId={slide.id}
                 slideNumber={index + 1}
                 fabricJson={slide.fabricJson}
                 prompt={slide.prompt}
@@ -522,13 +272,17 @@ export default function Home() {
 const SlideCanvas = forwardRef<
   SlideCanvasRef,
   {
+    slideId: string;
     slideNumber: number;
     fabricJson: any;
     prompt: string;
   }
->(({ slideNumber, fabricJson, prompt }, ref) => {
+>(({ slideId, slideNumber, fabricJson, prompt }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fabricCanvasRef = useRef<Canvas | null>(null);
+  const [isGeneratingImages, setIsGeneratingImages] = useState(false);
+  const [imageGenerationStatus, setImageGenerationStatus] =
+    useState<string>("");
 
   // 부모 컴포넌트에서 호출할 수 있는 메서드 노출
   useImperativeHandle(ref, () => ({
@@ -539,6 +293,145 @@ const SlideCanvas = forwardRef<
       return fabricJson;
     },
   }));
+
+  // 이미지 placeholder를 실제 이미지로 변환
+  const generatePlaceholderImages = async (canvas: Canvas, jsonData: any) => {
+    const objects = jsonData.objects || [];
+    const placeholderImages = objects.filter(
+      (obj: any) =>
+        obj.type === "Image" && obj.data?.isPlaceholder && obj.data?.imagePrompt
+    );
+
+    console.log("Found placeholder images:", placeholderImages.length);
+
+    if (placeholderImages.length === 0) {
+      return; // placeholder 이미지가 없으면 바로 리턴
+    }
+
+    // setIsGeneratingImages(true);
+    // setImageGenerationStatus(
+    //   `이미지 생성 중... (0/${placeholderImages.length})`
+    // );
+
+    for (let i = 0; i < placeholderImages.length; i++) {
+      const placeholderObj = placeholderImages[i];
+      try {
+        // Find the object index in the original objects array
+        const objectIndex = objects.indexOf(placeholderObj);
+
+        console.log(
+          `Generating image ${i + 1}:`,
+          placeholderObj.data.imagePrompt
+        );
+
+        // setImageGenerationStatus(
+        //   `이미지 생성 중... (${i + 1}/${placeholderImages.length})`
+        // );
+
+        // 이미지 생성 API 호출
+        const formData = new FormData();
+        formData.append("prompt", placeholderObj.data.imagePrompt);
+        formData.append("slideId", slideId);
+        formData.append("objectIndex", objectIndex.toString());
+
+        // Calculate target dimensions from placeholder
+        const targetWidth = placeholderObj.width * placeholderObj.scaleX;
+        const targetHeight = placeholderObj.height * placeholderObj.scaleY;
+        formData.append("targetWidth", targetWidth.toString());
+        formData.append("targetHeight", targetHeight.toString());
+
+        const response = await fetch("/api/generate-image", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate image");
+        }
+
+        const result = await response.json();
+        console.log(
+          "Image generated:",
+          result.url,
+          result.cached ? "(cached)" : "(new)"
+        );
+
+        // 캔버스에서 해당 객체 찾아서 src 업데이트
+        const canvasObjects = canvas.getObjects();
+        const targetIndex = objects.indexOf(placeholderObj);
+
+        console.log(
+          "Target index:",
+          targetIndex,
+          "Canvas objects:",
+          canvasObjects.length
+        );
+
+        if (targetIndex >= 0 && targetIndex < canvasObjects.length) {
+          const fabricObj = canvasObjects[targetIndex] as any;
+
+          console.log("Fabric object type:", fabricObj.type);
+
+          // Fabric.js Image 객체는 setSrc로 이미지 변경
+          if (fabricObj.type === "image" && fabricObj.setSrc) {
+            console.log("Setting image src to:", result.url);
+
+            // Use absolute URL to avoid 404 issues
+            // Add timestamp to prevent caching issues
+            const imageUrl = result.url.startsWith("http")
+              ? result.url
+              : `${window.location.origin}${result.url}`;
+
+            const imageUrlWithCache = `${imageUrl}?t=${Date.now()}`;
+
+            console.log("Absolute image URL:", imageUrlWithCache);
+
+            await new Promise<void>((resolve, reject) => {
+              fabricObj.setSrc(
+                imageUrlWithCache,
+                (img: any) => {
+                  console.log(
+                    "Image loaded successfully:",
+                    img?.width,
+                    "x",
+                    img?.height
+                  );
+                  fabricObj.setCoords();
+                  canvas.renderAll();
+                  resolve();
+                },
+                { crossOrigin: "anonymous" },
+                (err: any) => {
+                  console.error("Image load error:", err);
+                  reject(err);
+                }
+              );
+            });
+          } else {
+            console.warn(
+              "Object is not an image or setSrc not available:",
+              fabricObj
+            );
+          }
+        } else {
+          console.warn("Target index out of bounds");
+        }
+
+        // JSON 데이터도 업데이트 (다운로드용)
+        placeholderObj.src = result.url;
+        placeholderObj.data.isPlaceholder = false;
+      } catch (error) {
+        console.error("Failed to generate image:", error);
+        setImageGenerationStatus(
+          `이미지 생성 실패 (${i + 1}/${placeholderImages.length})`
+        );
+      }
+    }
+
+    setIsGeneratingImages(false);
+    setImageGenerationStatus("");
+    canvas.renderAll();
+  };
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -565,6 +458,9 @@ const SlideCanvas = forwardRef<
         canvas.renderAll();
         // 캔버스 요소가 제대로 활성화되도록 강제 업데이트
         canvas.requestRenderAll();
+
+        // 4. placeholder 이미지가 있으면 생성
+        await generatePlaceholderImages(canvas, fabricJson);
       } catch (error) {
         console.error("Fabric JSON Load Error:", error);
       }
@@ -586,8 +482,17 @@ const SlideCanvas = forwardRef<
         <h3 className="text-lg font-semibold">슬라이드 #{slideNumber}</h3>
         <p className="text-sm text-gray-500 line-clamp-1">{prompt}</p>
       </div>
-      <div className="border border-gray-300 rounded overflow-hidden flex justify-center bg-gray-100">
+      <div className="border border-gray-300 rounded overflow-hidden flex justify-center bg-gray-100 relative">
         <canvas ref={canvasRef} />
+        {isGeneratingImages && (
+          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white px-6 py-3 rounded-lg shadow-lg">
+              <p className="text-sm font-medium text-gray-700">
+                {imageGenerationStatus}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
       <p className="text-xs text-gray-400 mt-2">1280 x 720px</p>
     </div>

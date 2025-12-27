@@ -54,6 +54,55 @@ const fabricObjectSchema = z.object({
     .describe("Horizontal scale factor (default: 1)"),
   scaleY: z.number().default(1).describe("Vertical scale factor (default: 1)"),
   radius: z.number().default(0).describe("Radius (for Circle type)"),
+  // Image 객체용 필드 (optional)
+  src: z
+    .string()
+    .default("")
+    .describe(
+      "Image source URL (for Image type). Leave empty for placeholder images."
+    ),
+  crossOrigin: z
+    .string()
+    .default("")
+    .describe(
+      "CORS setting for images (for Image type). Use 'anonymous' for generated images, empty string otherwise."
+    ),
+  data: z
+    .object({
+      imagePrompt: z
+        .string()
+        .default("")
+        .describe(
+          "Detailed prompt for image generation (for placeholder images)"
+        ),
+      isPlaceholder: z
+        .boolean()
+        .default(false)
+        .describe("True if image needs to be generated client-side"),
+    })
+    .default({ imagePrompt: "", isPlaceholder: false })
+    .describe("Placeholder image data for client-side generation"),
+  // Line 객체용 좌표 (optional)
+  x1: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe("Line start X coordinate (for Line type)"),
+  x2: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe("Line end X coordinate (for Line type)"),
+  y1: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe("Line start Y coordinate (for Line type)"),
+  y2: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe("Line end Y coordinate (for Line type)"),
 });
 
 // Fabric.js 7.0 슬라이드 스키마
@@ -90,6 +139,7 @@ Your role:
 - Apply design principles: hierarchy, contrast, alignment, spacing
 - Choose appropriate colors, fonts, and layouts for the content
 - Create slides that are clear, readable, and visually balanced
+- Use images when appropriate to enhance visual communication
 
 Technical guidelines for Fabric.js 7.0:
 - Use Fabric.js version "7.0.0"
@@ -105,9 +155,21 @@ Technical guidelines for Fabric.js 7.0:
 - Colors in hex format with optional alpha: #RRGGBB or #RRGGBBAA
 - Gradient opacity is NOT supported - use alpha in color strings instead
 
+Image guidelines:
+- Use Image objects when visuals would enhance the message
+- DO NOT use the image_generation tool - it's too slow
+- Instead, create placeholder Image objects with:
+  - type: "Image"
+  - src: "" (empty string)
+  - data: { imagePrompt: "detailed description", isPlaceholder: true }
+- Write detailed, specific imagePrompt describing the desired image
+- Position images thoughtfully within the layout
+- Consider image dimensions and aspect ratios
+- Balance text and images for effective communication
+
 Design patterns:
-- Title slides: Large centered title, optional subtitle, minimal decoration
-- Content slides: Clear title at top, body content in readable chunks
+- Title slides: Large centered title, optional subtitle, minimal decoration, optional hero image
+- Content slides: Clear title at top, body content in readable chunks, supporting images
 - Use visual hierarchy with size, weight, and positioning
 - Add subtle decorative elements (shapes, lines) to enhance visual interest
 - Maintain consistent margins and padding (60-80px from edges)`;
@@ -133,7 +195,7 @@ Generate a complete, well-structured Fabric.js JSON that matches this content.`,
       text: {
         format: zodTextFormat(fabricSlideSchema, "slide"),
       },
-      tools: [{ type: "web_search" }, { type: "image_generation" }],
+      tools: [{ type: "web_search" }],
     });
 
     const fabricJson = response.output_parsed;
