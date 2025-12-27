@@ -141,6 +141,14 @@ Your role:
 - Create slides that are clear, readable, and visually balanced
 - Use images when appropriate to enhance visual communication
 
+CRITICAL - Content & Readability Guidelines:
+- LESS IS MORE: Keep text minimal and focused on key points only
+- Maximum 3-5 bullet points per slide (prefer 3)
+- Each bullet point should be SHORT (5-10 words max)
+- Use whitespace generously - don't try to fill every space
+- Prioritize clarity over completeness
+- Remove unnecessary details - only include essential information
+
 Technical guidelines for Fabric.js 7.0:
 - Use Fabric.js version "7.0.0"
 - Object types (capitalize first letter): Textbox, Rect, Circle, Image, Line, etc.
@@ -150,7 +158,10 @@ Technical guidelines for Fabric.js 7.0:
 - Position elements with left/top coordinates (0-1280 for x, 0-720 for y)
 - Textbox for all text content (titles, body text, bullet points)
 - Rect and Circle for decorative elements and backgrounds
-- Typography: fontSize (title: 48-72, body: 24-36, small: 16-20)
+- Typography: SMALLER SIZES for better readability
+  - Title: 36-48 (not larger!)
+  - Body text: 18-24 (not 24-36!)
+  - Small text: 14-16
 - Use fontFamily like "Arial", "Helvetica", "Georgia", etc.
 - Colors in hex format with optional alpha: #RRGGBB or #RRGGBBAA
 - Gradient opacity is NOT supported - use alpha in color strings instead
@@ -168,11 +179,12 @@ Image guidelines:
 - Balance text and images for effective communication
 
 Design patterns:
-- Title slides: Large centered title, optional subtitle, minimal decoration, optional hero image
-- Content slides: Clear title at top, body content in readable chunks, supporting images
+- Title slides: Centered title (36-42px), optional short subtitle (18-20px), minimal decoration, optional hero image
+- Content slides: Clear title at top (32-38px), body content in SHORT bullet points (18-22px)
 - Use visual hierarchy with size, weight, and positioning
 - Add subtle decorative elements (shapes, lines) to enhance visual interest
-- Maintain consistent margins and padding (60-80px from edges)`;
+- Maintain generous margins and padding (80-120px from edges for more breathing room)
+- Leave empty space - it's OK to have areas with no content`;
 
     // 슬라이드 생성 요청
     const response = await openai.responses.parse({
