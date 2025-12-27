@@ -308,10 +308,10 @@ const SlideCanvas = forwardRef<
       return; // placeholder 이미지가 없으면 바로 리턴
     }
 
-    // setIsGeneratingImages(true);
-    // setImageGenerationStatus(
-    //   `이미지 생성 중... (0/${placeholderImages.length})`
-    // );
+    setIsGeneratingImages(true);
+    setImageGenerationStatus(
+      `이미지 생성 중... (0/${placeholderImages.length})`
+    );
 
     for (let i = 0; i < placeholderImages.length; i++) {
       const placeholderObj = placeholderImages[i];
@@ -324,9 +324,9 @@ const SlideCanvas = forwardRef<
           placeholderObj.data.imagePrompt
         );
 
-        // setImageGenerationStatus(
-        //   `이미지 생성 중... (${i + 1}/${placeholderImages.length})`
-        // );
+        setImageGenerationStatus(
+          `이미지 생성 중... (${i + 1}/${placeholderImages.length})`
+        );
 
         // 이미지 생성 API 호출
         const formData = new FormData();
@@ -372,46 +372,53 @@ const SlideCanvas = forwardRef<
 
           console.log("Fabric object type:", fabricObj.type);
 
-          // Fabric.js Image 객체는 setSrc로 이미지 변경
-          if (fabricObj.type === "image" && fabricObj.setSrc) {
-            console.log("Setting image src to:", result.url);
+          // Fabric.js Image 객체 교체
+          if (fabricObj.type === "image") {
+            console.log("Replacing image object with:", result.url);
 
-            // Use absolute URL to avoid 404 issues
-            // Add timestamp to prevent caching issues
+            // Use absolute URL
             const imageUrl = result.url.startsWith("http")
               ? result.url
               : `${window.location.origin}${result.url}`;
 
-            const imageUrlWithCache = `${imageUrl}?t=${Date.now()}`;
+            console.log("Loading image from:", imageUrl);
 
-            console.log("Absolute image URL:", imageUrlWithCache);
-
-            await new Promise<void>((resolve, reject) => {
-              fabricObj.setSrc(
-                imageUrlWithCache,
-                (img: any) => {
-                  console.log(
-                    "Image loaded successfully:",
-                    img?.width,
-                    "x",
-                    img?.height
-                  );
-                  fabricObj.setCoords();
-                  canvas.renderAll();
-                  resolve();
-                },
-                { crossOrigin: "anonymous" },
-                (err: any) => {
-                  console.error("Image load error:", err);
-                  reject(err);
-                }
-              );
+            // Create new Image object with proper loading
+            const { FabricImage } = await import("fabric");
+            const newImg = await FabricImage.fromURL(imageUrl, {
+              crossOrigin: "anonymous",
             });
+
+            // Apply the same properties from placeholder
+            newImg.set({
+              left: fabricObj.left,
+              top: fabricObj.top,
+              originX: fabricObj.originX,
+              originY: fabricObj.originY,
+              scaleX: fabricObj.scaleX,
+              scaleY: fabricObj.scaleY,
+              angle: fabricObj.angle,
+              opacity: fabricObj.opacity,
+            });
+
+            // Get all objects, remove old one, insert new one at same position
+            const allObjects = canvas.getObjects();
+            canvas.remove(fabricObj);
+
+            // Re-add all objects with the new image in the correct position
+            canvas.clear();
+            allObjects.forEach((obj, idx) => {
+              if (idx === targetIndex) {
+                canvas.add(newImg);
+              } else if (obj !== fabricObj) {
+                canvas.add(obj);
+              }
+            });
+
+            console.log("Image loaded and inserted successfully");
+            canvas.renderAll();
           } else {
-            console.warn(
-              "Object is not an image or setSrc not available:",
-              fabricObj
-            );
+            console.warn("Object is not an image:", fabricObj);
           }
         } else {
           console.warn("Target index out of bounds");
