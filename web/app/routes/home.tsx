@@ -9,7 +9,6 @@ import {
 import { Form } from "react-router";
 import { ulid } from "ulid";
 import type { Route } from "./+types/home";
-import { sample } from "./sample";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -30,7 +29,7 @@ export interface SlideCanvasRef {
 
 export default function Home() {
   const slideCanvasRefs = useRef<Map<string, SlideCanvasRef>>(new Map());
-  const [slides, setSlides] = useState<Slide[]>([sample]);
+  const [slides, setSlides] = useState<Slide[]>([]);
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -395,16 +394,24 @@ const SlideCanvas = forwardRef<
                 newImg = await FabricImage.fromURL(cacheBustUrl, {
                   crossOrigin: "anonymous",
                 });
-                console.log("Image loaded successfully on attempt", 4 - retries);
+                console.log(
+                  "Image loaded successfully on attempt",
+                  4 - retries
+                );
                 break;
               } catch (error) {
                 retries--;
                 if (retries > 0) {
-                  console.log(`Image load failed, retrying... (${retries} attempts left)`);
+                  console.log(
+                    `Image load failed, retrying... (${retries} attempts left)`
+                  );
                   // Wait a bit before retrying
-                  await new Promise(resolve => setTimeout(resolve, 200));
+                  await new Promise((resolve) => setTimeout(resolve, 200));
                 } else {
-                  console.error("Failed to load image after all retries:", error);
+                  console.error(
+                    "Failed to load image after all retries:",
+                    error
+                  );
                   throw error;
                 }
               }
