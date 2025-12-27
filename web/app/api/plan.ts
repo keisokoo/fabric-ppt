@@ -11,17 +11,15 @@ const openai = new OpenAI({
 // Individual slide plan schema
 const slidePlanSchema = z.object({
   slideNumber: z.number().describe("Slide number (starting from 1)"),
-  title: z.string().describe("Brief title for this slide (5-10 words)"),
-  prompt: z
+  title: z.string().describe("Slide title (concise, 3-8 words)"),
+  content: z
     .string()
     .describe(
-      "Detailed prompt for gen.ts to generate this slide. Include specific content, layout suggestions, and visual requirements. Be very specific about what text, images, and design elements should be included."
+      "Brief description of what content this slide should cover. Just the topic/information, not design details. Gen.ts will research and design it."
     ),
-  purpose: z
-    .string()
-    .describe(
-      "Purpose of this slide in the presentation (e.g., introduction, main point, supporting data, conclusion)"
-    ),
+  slideType: z
+    .enum(["title", "content", "data", "comparison", "conclusion", "other"])
+    .describe("Type of slide for content structure"),
 });
 
 // Presentation plan schema
@@ -31,9 +29,7 @@ const presentationPlanSchema = z.object({
     .describe("Total number of slides in the presentation"),
   theme: z
     .string()
-    .describe(
-      "Overall theme/topic of the presentation (one sentence summary)"
-    ),
+    .describe("Overall theme/topic of the presentation (one sentence summary)"),
   slides: z
     .array(slidePlanSchema)
     .describe("Array of individual slide plans with detailed prompts"),
@@ -56,37 +52,41 @@ export const action = async (args: ActionFunctionArgs) => {
       );
     }
 
-    console.log(
-      `Planning presentation: "${topic}" with ${slideCount} slides`
-    );
+    console.log(`Planning presentation: "${topic}" with ${slideCount} slides`);
 
     const systemPrompt = `You are an expert presentation planner and content strategist.
 
 Your role:
 - Analyze the user's topic and create a well-structured presentation outline
-- Plan each slide with specific, detailed content
-- Use web search to gather accurate, up-to-date information when needed
-- Create diverse slide types: title slides, content slides, data/statistics slides, conclusion slides
+- Plan the content structure and flow of the presentation
+- Use web search to understand the topic and identify key points to cover
+- Focus on WHAT information each slide should convey, not HOW it looks
 - Ensure logical flow and coherent narrative throughout the presentation
-- Write detailed prompts that the slide generator can use to create professional slides
+
+IMPORTANT - Content Only, No Design:
+- Do NOT specify colors, fonts, layouts, or visual design elements
+- Do NOT mention specific images, icons, charts, or decorative elements
+- Do NOT give design instructions like "centered", "left-aligned", "blue theme", etc.
+- ONLY describe the informational content each slide should contain
 
 Guidelines for slide planning:
-- First slide should be a title/introduction slide
-- Last slide should be a conclusion/summary slide
-- Middle slides should develop the topic logically
-- Include specific data, facts, or examples when relevant
-- Vary slide types for visual interest
-- Each prompt should be 2-4 sentences with specific instructions
+- First slide: title/introduction with main topic
+- Middle slides: develop the topic logically with key points
+- Last slide: conclusion/summary or call-to-action
+- Vary slide types: title, content, data, comparison, conclusion
+- Keep content descriptions brief (1-2 sentences per slide)
 
-Prompt writing best practices:
-- Be specific about slide type (title, content, data visualization, etc.)
-- Mention key text content that should appear
-- Suggest visual elements (charts, images, icons, shapes)
-- Indicate color scheme or mood if relevant
-- Specify layout preferences (centered, left-aligned, multi-column, etc.)
+Content description examples:
+✅ GOOD: "Overview of AI market growth in 2024-2025 with key statistics"
+✅ GOOD: "Three main benefits of the product for enterprise customers"
+❌ BAD: "Title centered with blue background and rocket icon on the right"
+❌ BAD: "Use bullet points with checkmark icons and gradient colors"
 
-Example good prompt:
-"Create a content slide titled 'Market Growth Trends'. Include three bullet points: 1) Global market increased 23% in 2024, 2) Asia-Pacific leads with 45% market share, 3) Projected 30% growth by 2026. Add a bar chart placeholder showing year-over-year growth. Use professional blue color scheme with data visualization emphasis."`;
+The slide generator (gen.ts) will:
+- Research detailed information using web search
+- Decide on appropriate visualizations
+- Design the layout and visual style
+- Add icons, images, and decorative elements`;
 
     // Generate presentation plan
     const response = await openai.responses.parse({
@@ -98,26 +98,29 @@ Example good prompt:
         },
         {
           role: "user",
-          content: `Create a detailed presentation plan for the following topic:
+          content: `Create a presentation content plan for the following topic:
 
 Topic: ${topic}
 Number of slides: ${slideCount}
 
-For each slide, write a specific, detailed prompt that includes:
-1. What type of slide it is (title, content, data, conclusion, etc.)
-2. Specific text content that should appear
-3. Visual elements to include (images, charts, shapes, icons)
-4. Layout and design suggestions
+For each slide, provide:
+1. slideNumber: The slide number (1 to ${slideCount})
+2. title: A concise slide title (3-8 words)
+3. content: Brief description of what information this slide should cover (1-2 sentences, content only, NO design details)
+4. slideType: Type of slide (title/content/data/comparison/conclusion/other)
 
-Use web search if you need current data, statistics, or factual information about this topic.
+Remember:
+- Focus ONLY on content structure and information flow
+- Do NOT mention any visual design elements
+- Keep descriptions brief and factual
+- Use web search to understand the topic better if needed
 
-Generate a complete presentation plan with ${slideCount} well-structured slides.`,
+Generate a complete presentation plan with ${slideCount} slides.`,
         },
       ],
       text: {
         format: zodTextFormat(presentationPlanSchema, "presentation_plan"),
       },
-      tools: [{ type: "web_search" }],
     });
 
     const plan = response.output_parsed;

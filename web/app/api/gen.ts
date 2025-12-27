@@ -79,9 +79,40 @@ const fabricObjectSchema = z.object({
         .boolean()
         .default(false)
         .describe("True if image needs to be generated client-side"),
+      iconName: z
+        .enum([
+          "lightning",
+          "checkmark",
+          "target",
+          "settings",
+          "shield",
+          "lock",
+          "chart",
+          "users",
+          "rocket",
+          "calendar",
+          "clock",
+        ])
+        .nullable()
+        .default(null)
+        .describe("Icon name for SVG icons"),
+      iconColor: z
+        .string()
+        .default("#000000")
+        .describe("Fill color for the icon (hex format)"),
+      isIcon: z
+        .boolean()
+        .default(false)
+        .describe("True if this is an SVG icon to be rendered client-side"),
     })
-    .default({ imagePrompt: "", isPlaceholder: false })
-    .describe("Placeholder image data for client-side generation"),
+    .default({
+      imagePrompt: "",
+      isPlaceholder: false,
+      iconName: null,
+      iconColor: "#000000",
+      isIcon: false,
+    })
+    .describe("Image data for placeholder images or icons"),
   // Line 객체용 좌표 (optional)
   x1: z
     .number()
@@ -165,6 +196,33 @@ Technical guidelines for Fabric.js 7.0:
 - Use fontFamily like "Arial", "Helvetica", "Georgia", etc.
 - Colors in hex format with optional alpha: #RRGGBB or #RRGGBBAA
 - Gradient opacity is NOT supported - use alpha in color strings instead
+
+Icon Library:
+IMPORTANT: Use icons instead of generating placeholder images for simple symbols!
+Available icons (choose iconName from these):
+- lightning - activation, energy, power
+- checkmark - success, completion, validation
+- target - goals, targeting, focus
+- settings - configuration, customization
+- shield - security, protection
+- lock - privacy, authentication
+- chart - analytics, data, metrics
+- users - team, collaboration, people
+- rocket - growth, launch, startup
+- calendar - schedule, timeline, dates
+- clock - time, duration, deadline
+
+When using icons:
+- type: "Image"
+- src: "" (empty string)
+- width/height: usually 48-96px
+- data: {
+    isIcon: true,
+    iconName: "lightning" (choose from above),
+    iconColor: "#FF6B00" (hex color to match your design)
+  }
+- Icons load instantly and render in any color you specify
+- Much faster than generating placeholder images!
 
 Image guidelines:
 - Use Image objects when visuals would enhance the message

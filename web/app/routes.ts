@@ -5,4 +5,5 @@ export default [
   route("api/gen", "api/gen.ts"),
   route("api/plan", "api/plan.ts"),
   route("api/generate-image", "api/generate-image.ts"),
+  route("api/generate-icon", "api/generate-icon.ts"),
 ] satisfies RouteConfig;

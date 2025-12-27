@@ -26,8 +26,8 @@ interface Slide {
 interface SlidePlan {
   slideNumber: number;
   title: string;
-  prompt: string;
-  purpose: string;
+  content: string;
+  slideType: string;
 }
 
 interface PresentationPlan {
@@ -226,7 +226,9 @@ function EditPlanPhase({
         const slidePlan = plan.slides[i];
 
         const formData = new FormData();
-        formData.append("prompt", slidePlan.prompt);
+        // Combine title and content for the prompt
+        const fullPrompt = `${slidePlan.title}: ${slidePlan.content}`;
+        formData.append("prompt", fullPrompt);
         formData.append("slideNumber", slidePlan.slideNumber.toString());
 
         const response = await fetch("/api/gen", {
@@ -245,7 +247,7 @@ function EditPlanPhase({
         generatedSlides.push({
           id: ulid(),
           fabricJson: result.slide,
-          prompt: slidePlan.prompt,
+          prompt: fullPrompt,
         });
 
         setGenerationProgress(((i + 1) / plan.slides.length) * 100);
@@ -281,7 +283,7 @@ function EditPlanPhase({
                   슬라이드 {slide.slideNumber}
                 </h3>
                 <span className="text-xs text-gray-400 px-3 py-1 bg-gray-600 rounded-full">
-                  {slide.purpose}
+                  {slide.slideType}
                 </span>
               </div>
 
@@ -302,14 +304,14 @@ function EditPlanPhase({
 
                 <div>
                   <label className="block text-sm font-medium mb-1">
-                    프롬프트 (슬라이드 생성 지침)
+                    내용 설명
                   </label>
                   <textarea
-                    value={slide.prompt}
+                    value={slide.content}
                     onChange={(e) =>
-                      handleUpdateSlide(index, "prompt", e.target.value)
+                      handleUpdateSlide(index, "content", e.target.value)
                     }
-                    rows={4}
+                    rows={3}
                     className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-white resize-none"
                   />
                 </div>
@@ -565,18 +567,123 @@ const SlideCanvas = forwardRef<
       (obj: any) =>
         obj.type === "Image" && obj.data?.isPlaceholder && obj.data?.imagePrompt
     );
+    const iconImages = objects.filter(
+      (obj: any) =>
+        obj.type === "Image" && obj.data?.isIcon && obj.data?.iconName
+    );
 
     console.log("Found placeholder images:", placeholderImages.length);
+    console.log("Found icon images:", iconImages.length);
 
-    if (placeholderImages.length === 0) {
+    if (placeholderImages.length === 0 && iconImages.length === 0) {
       return;
     }
 
     setIsGeneratingImages(true);
+    const totalItems = iconImages.length + placeholderImages.length;
     setImageGenerationStatus(
-      `이미지 생성 중... (0/${placeholderImages.length})`
+      `이미지 생성 중... (0/${totalItems})`
     );
 
+    let currentIndex = 0;
+
+    // First, generate icons
+    for (let i = 0; i < iconImages.length; i++) {
+      const iconObj = iconImages[i];
+      try {
+        const objectIndex = objects.indexOf(iconObj);
+
+        console.log(
+          `Generating icon ${i + 1}:`,
+          iconObj.data.iconName,
+          iconObj.data.iconColor
+        );
+
+        currentIndex++;
+        setImageGenerationStatus(
+          `아이콘 생성 중... (${currentIndex}/${totalItems})`
+        );
+
+        const formData = new FormData();
+        formData.append("iconName", iconObj.data.iconName);
+        formData.append("iconColor", iconObj.data.iconColor || "#000000");
+        formData.append("slideId", slideId);
+        formData.append("objectIndex", objectIndex.toString());
+
+        const targetWidth = iconObj.width * iconObj.scaleX;
+        const targetHeight = iconObj.height * iconObj.scaleY;
+        formData.append("targetWidth", targetWidth.toString());
+        formData.append("targetHeight", targetHeight.toString());
+
+        const response = await fetch("/api/generate-icon", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate icon");
+        }
+
+        const result = await response.json();
+        console.log("Icon generated:", result.url);
+
+        const canvasObjects = canvas.getObjects();
+        const targetIndex = objects.indexOf(iconObj);
+
+        if (targetIndex >= 0 && targetIndex < canvasObjects.length) {
+          const fabricObj = canvasObjects[targetIndex] as any;
+
+          if (fabricObj.type === "image") {
+            const imageUrl = result.url.startsWith("http")
+              ? result.url
+              : `${window.location.origin}${result.url}`;
+
+            const { FabricImage } = await import("fabric");
+            let newImg;
+            let retries = 3;
+
+            while (retries > 0) {
+              try {
+                const cacheBustUrl = `${imageUrl}?t=${Date.now()}`;
+                newImg = await FabricImage.fromURL(cacheBustUrl, {
+                  crossOrigin: "anonymous",
+                });
+                break;
+              } catch (error) {
+                retries--;
+                if (retries > 0) {
+                  console.log(`Icon load retry ${3 - retries}/3`);
+                  await new Promise((resolve) => setTimeout(resolve, 200));
+                } else {
+                  throw error;
+                }
+              }
+            }
+
+            if (newImg) {
+              newImg.set({
+                left: fabricObj.left,
+                top: fabricObj.top,
+                scaleX: fabricObj.scaleX,
+                scaleY: fabricObj.scaleY,
+                angle: fabricObj.angle,
+                originX: fabricObj.originX,
+                originY: fabricObj.originY,
+              });
+
+              canvas.remove(fabricObj);
+              canvas.insertAt(targetIndex, newImg);
+              canvas.renderAll();
+              canvas.requestRenderAll();
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to generate icon ${i + 1}:`, error);
+      }
+    }
+
+    // Then, generate placeholder images
     for (let i = 0; i < placeholderImages.length; i++) {
       const placeholderObj = placeholderImages[i];
       try {
@@ -587,8 +694,9 @@ const SlideCanvas = forwardRef<
           placeholderObj.data.imagePrompt
         );
 
+        currentIndex++;
         setImageGenerationStatus(
-          `이미지 생성 중... (${i + 1}/${placeholderImages.length})`
+          `이미지 생성 중... (${currentIndex}/${totalItems})`
         );
 
         const formData = new FormData();
