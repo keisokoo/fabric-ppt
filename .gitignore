@@ -86,4 +86,6 @@ lerna-debug.log*
 
 CLAUDE.md
 
-public/upload/
+# Upload directory - ignore all files except .gitkeep
+web/public/upload/images/*
+!web/public/upload/images/.gitkeep
