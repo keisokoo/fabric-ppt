@@ -85,3 +85,5 @@ lerna-debug.log*
 *~
 
 CLAUDE.md
+
+public/upload/
