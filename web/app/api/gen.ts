@@ -339,7 +339,9 @@ COLOR USAGE RULES (mandatory):
 }
 ${iconSection}
 Image guidelines:
+- IMPORTANT: Include at least 1 image per presentation (across all slides)
 - Use Image objects when visuals would enhance the message
+- Images make presentations more engaging and memorable
 - DO NOT use the image_generation tool - it's too slow
 - Instead, create placeholder Image objects with:
   - type: "Image"
@@ -349,6 +351,7 @@ Image guidelines:
 - Position images thoughtfully within the layout
 - Consider image dimensions and aspect ratios
 - Balance text and images for effective communication
+- Ideal slides for images: title slides, concept explanations, data visualization alternatives
 
 Design patterns:
 - Title slides: Centered title (36-42px), optional short subtitle (18-20px), minimal decoration, optional hero image
