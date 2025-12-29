@@ -4,8 +4,8 @@ import type { ActionFunctionArgs } from "react-router";
 import { data } from "react-router";
 import { z } from "zod";
 
-// Fabric.js 7.0 오브젝트 스키마
-const fabricObjectSchema = z.object({
+// Base Fabric.js 7.0 오브젝트 스키마 (without icons)
+const baseFabricObjectSchema = z.object({
   type: z
     .string()
     .describe(
@@ -36,7 +36,7 @@ const fabricObjectSchema = z.object({
   fontSize: z.number().default(16).describe("Font size (for text objects)"),
   fontFamily: z
     .string()
-    .default("Arial")
+    .default("Malgun Gothic")
     .describe("Font family (for text objects)"),
   fontWeight: z
     .string()
@@ -67,6 +67,49 @@ const fabricObjectSchema = z.object({
     .describe(
       "CORS setting for images (for Image type). Use 'anonymous' for generated images, empty string otherwise."
     ),
+  data: z
+    .object({
+      imagePrompt: z
+        .string()
+        .default("")
+        .describe(
+          "Detailed prompt for image generation (for placeholder images)"
+        ),
+      isPlaceholder: z
+        .boolean()
+        .default(false)
+        .describe("True if image needs to be generated client-side"),
+    })
+    .default({
+      imagePrompt: "",
+      isPlaceholder: false,
+    })
+    .describe("Image data for placeholder images"),
+  // Line 객체용 좌표 (optional)
+  x1: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe("Line start X coordinate (for Line type)"),
+  x2: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe("Line end X coordinate (for Line type)"),
+  y1: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe("Line start Y coordinate (for Line type)"),
+  y2: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe("Line end Y coordinate (for Line type)"),
+});
+
+// Extended schema with icon support
+const fabricObjectSchemaWithIcons = baseFabricObjectSchema.extend({
   data: z
     .object({
       imagePrompt: z
@@ -113,39 +156,6 @@ const fabricObjectSchema = z.object({
       isIcon: false,
     })
     .describe("Image data for placeholder images or icons"),
-  // Line 객체용 좌표 (optional)
-  x1: z
-    .number()
-    .nullable()
-    .default(null)
-    .describe("Line start X coordinate (for Line type)"),
-  x2: z
-    .number()
-    .nullable()
-    .default(null)
-    .describe("Line end X coordinate (for Line type)"),
-  y1: z
-    .number()
-    .nullable()
-    .default(null)
-    .describe("Line start Y coordinate (for Line type)"),
-  y2: z
-    .number()
-    .nullable()
-    .default(null)
-    .describe("Line end Y coordinate (for Line type)"),
-});
-
-// Fabric.js 7.0 슬라이드 스키마
-const fabricSlideSchema = z.object({
-  version: z.string().describe("Fabric.js version (use 7.0.0)"),
-  objects: z
-    .array(fabricObjectSchema)
-    .describe("Array of Fabric.js objects on the canvas"),
-  background: z
-    .string()
-    .default("#ffffff")
-    .describe("Background color (hex with alpha: #RRGGBBAA or #RRGGBB)"),
 });
 
 export const action = async (args: ActionFunctionArgs) => {
@@ -153,14 +163,108 @@ export const action = async (args: ActionFunctionArgs) => {
     const formData = await args.request.formData();
     const prompt = formData.get("prompt") as string;
     const slideNumber = formData.get("slideNumber") as string;
+    const useIcons = formData.get("useIcons") === "true";
+    const background = formData.get("background") as string | null;
+    const colorPaletteStr = formData.get("colorPalette") as string | null;
 
     if (!prompt) {
       return data({ error: "Prompt is required" }, { status: 400 });
     }
 
+    // Parse color palette if provided
+    let colorPalette = null;
+    if (colorPaletteStr) {
+      try {
+        colorPalette = JSON.parse(colorPaletteStr);
+      } catch (e) {
+        console.error("Failed to parse color palette:", e);
+      }
+    }
+
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+
+    // Select schema based on useIcons flag
+    const fabricObjectSchema = useIcons
+      ? fabricObjectSchemaWithIcons
+      : baseFabricObjectSchema;
+
+    // Schema varies based on whether background is provided
+    const fabricSlideSchema = background
+      ? z.object({
+          objects: z
+            .array(fabricObjectSchema)
+            .describe("Array of Fabric.js objects on the canvas"),
+        })
+      : z.object({
+          objects: z
+            .array(fabricObjectSchema)
+            .describe("Array of Fabric.js objects on the canvas"),
+          background: z
+            .string()
+            .describe("Background color (hex with alpha: #RRGGBBAA or #RRGGBB)"),
+        });
+
+    const iconSection = useIcons
+      ? `
+Icon Library:
+Available icons (choose iconName from these):
+- lightning - activation, energy, power
+- checkmark - success, completion, validation
+- target - goals, targeting, focus
+- settings - configuration, customization
+- shield - security, protection
+- lock - privacy, authentication
+- chart - analytics, data, metrics
+- users - team, collaboration, people
+- rocket - growth, launch, startup
+- calendar - schedule, timeline, dates
+- clock - time, duration, deadline
+
+When using icons:
+- Use icons SPARINGLY - only when they genuinely add value
+- Maximum 1-2 icons per slide
+- type: "Image"
+- src: "" (empty string)
+- Size guidelines:
+  - Small accents: 32-48px (width/height)
+  - Medium emphasis: 48-64px
+  - Large focal point: 64-96px (rarely needed)
+- data: {
+    isIcon: true,
+    iconName: "lightning" (choose from above),
+    iconColor: "#FF6B00" (hex color to match your design)
+  }
+- Icons load instantly and render in any color you specify
+`
+      : `
+IMPORTANT: SVG Icon library is NOT available. Use alternative icon solutions:
+
+1. UNICODE ICON CHARACTERS (Preferred method):
+   - Use Textbox with Unicode emoji/symbols: ⚡ ✓ ⭐ ⚙️ 🔒 📊 👥 🚀 📅 ⏰ ▶ ● ■ ▲ ★ ♦ ✕ ✔
+   - fontSize: 32-72 (larger than normal text)
+   - Example: { type: "Textbox", text: "⚡", fontSize: 48, fill: "#FF6B00", ... }
+   - Benefits: Instant rendering, any color, crisp at any size
+
+2. FABRIC PATH OBJECTS (For custom shapes):
+   - type: "Path"
+   - path: "M 0 0 L 100 100 L 0 100 Z" (SVG path syntax)
+   - Use simple geometric paths for custom icons
+   - Example arrow: "M 0 50 L 80 50 L 60 30 M 80 50 L 60 70"
+   - Can create: arrows, stars, checkmarks, etc.
+
+3. GEOMETRIC COMBINATIONS:
+   - Combine Rect, Circle, Line for icon-like shapes
+   - Example checkmark: Two rotated thin Rect objects
+
+DO NOT:
+- Do NOT use Image type for icons (image generation AI cannot create clean icons)
+- Do NOT request image generation for small decorative elements
+- Placeholder images should ONLY be for large photos/illustrations
+
+Use icons SPARINGLY - maximum 1-2 per slide, only when they add value.
+`;
 
     const systemPrompt = `You are a professional presentation slide designer that creates slides in Fabric.js 7.0 JSON format.
 
@@ -193,37 +297,47 @@ Technical guidelines for Fabric.js 7.0:
   - Title: 36-48 (not larger!)
   - Body text: 18-24 (not 24-36!)
   - Small text: 14-16
-- Use fontFamily like "Arial", "Helvetica", "Georgia", etc.
+- Use fontFamily: "Malgun Gothic" (default for Korean), "Arial", "Helvetica" for English
 - Colors in hex format with optional alpha: #RRGGBB or #RRGGBBAA
 - Gradient opacity is NOT supported - use alpha in color strings instead
+${
+  colorPalette
+    ? `
+CRITICAL - USE ONLY THESE COLORS (strictly enforced):
+Background: ${colorPalette.background}
+Text Colors:
+  - Primary body text: ${colorPalette.textPrimary} (use for all paragraphs, bullet points, descriptions)
+  - Secondary text: ${colorPalette.textSecondary} (use for captions, subtitles, less important text)
+Accent Colors:
+  - Primary accent: ${colorPalette.accent} (use for slide titles, headings, key highlights)
+  - Light accent: ${colorPalette.accentLight} (use for subtle emphasis, icons, decorative elements)
+Borders & Dividers:
+  - Border color: ${colorPalette.border} (use for boxes, dividers, underlines)
 
-Icon Library:
-IMPORTANT: Use icons instead of generating placeholder images for simple symbols!
-Available icons (choose iconName from these):
-- lightning - activation, energy, power
-- checkmark - success, completion, validation
-- target - goals, targeting, focus
-- settings - configuration, customization
-- shield - security, protection
-- lock - privacy, authentication
-- chart - analytics, data, metrics
-- users - team, collaboration, people
-- rocket - growth, launch, startup
-- calendar - schedule, timeline, dates
-- clock - time, duration, deadline
-
-When using icons:
-- type: "Image"
-- src: "" (empty string)
-- width/height: usually 48-96px
-- data: {
-    isIcon: true,
-    iconName: "lightning" (choose from above),
-    iconColor: "#FF6B00" (hex color to match your design)
-  }
-- Icons load instantly and render in any color you specify
-- Much faster than generating placeholder images!
-
+COLOR USAGE RULES (mandatory):
+1. ALL body text MUST use textPrimary (${colorPalette.textPrimary})
+2. ALL slide titles MUST use accent (${colorPalette.accent})
+3. Subtitles/captions MUST use textSecondary (${colorPalette.textSecondary})
+4. Borders/boxes MUST use border (${colorPalette.border})
+5. Icons/decorations can use accentLight (${colorPalette.accentLight}) or accent
+6. DO NOT invent new colors - use ONLY the colors listed above
+7. NO exceptions - this palette is professionally designed for optimal contrast and harmony`
+    : background
+    ? `- IMPORTANT: Background color is FIXED at ${background}. Design the entire color scheme around this:
+  - Choose text and object colors that provide excellent contrast with ${background}
+  - Ensure readability with sufficient contrast ratio (WCAG AA: 4.5:1 for normal text, 3:1 for large text)
+  - Create a cohesive color palette that complements ${background}
+  - For dark backgrounds: use light/white text
+  - For light backgrounds: use dark text
+  - Select accent colors that harmonize with the background`
+    : `- IMPORTANT: You have FULL CONTROL over the color scheme. Choose a background color and design accordingly:
+  - Select any background color that fits the presentation theme and mood
+  - Design a cohesive color palette with the background as the foundation
+  - Ensure all text and objects have excellent contrast with your chosen background
+  - Maintain WCAG AA contrast ratios (4.5:1 for normal text, 3:1 for large text)
+  - Consider the presentation context when choosing colors`
+}
+${iconSection}
 Image guidelines:
 - Use Image objects when visuals would enhance the message
 - DO NOT use the image_generation tool - it's too slow
@@ -262,10 +376,13 @@ Slide Number: ${slideNumber ? `#${slideNumber}` : "1"}
 Generate a complete, well-structured Fabric.js JSON that matches this content.`,
         },
       ],
+      reasoning: {
+        effort: "none",
+      },
       text: {
         format: zodTextFormat(fabricSlideSchema, "slide"),
       },
-      tools: [{ type: "web_search" }],
+      // tools: [{ type: "web_search" }],
     });
 
     const fabricJson = response.output_parsed;
@@ -274,9 +391,16 @@ Generate a complete, well-structured Fabric.js JSON that matches this content.`,
       throw new Error("Failed to parse slide data");
     }
 
+    // Add version and background to the AI-generated objects
+    const completeSlide = {
+      version: "7.0.0",
+      objects: fabricJson.objects,
+      background: background || (fabricJson as any).background || "#ffffff",
+    };
+
     return data({
       success: true,
-      slide: fabricJson,
+      slide: completeSlide,
       slideNumber: slideNumber || 1,
     });
   } catch (error) {

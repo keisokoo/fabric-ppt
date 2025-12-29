@@ -15,6 +15,7 @@
     "@react-router/serve": "7.10.1",
     "fabric": "^7.0.0",
     "isbot": "^5.1.31",
+    "jsonrepair": "^3.13.1",
     "openai": "^6.15.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

@@ -34,6 +34,8 @@ interface PresentationPlan {
   totalSlides: number;
   theme: string;
   slides: SlidePlan[];
+  background?: string;
+  useIcons?: boolean;
 }
 
 export interface SlideCanvasRef {
@@ -46,6 +48,82 @@ export default function Home() {
   const [phase, setPhase] = useState<Phase>("plan");
   const [plan, setPlan] = useState<PresentationPlan | null>(null);
   const [slides, setSlides] = useState<Slide[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+
+  const handleGenerateAllSlides = async (planToGenerate: PresentationPlan) => {
+    setIsGenerating(true);
+    setGenerationProgress(0);
+    setPhase("management");
+
+    try {
+      // Generate color palette if background is specified
+      let colorPalette = null;
+      if (planToGenerate.background) {
+        const paletteFormData = new FormData();
+        paletteFormData.append("background", planToGenerate.background);
+
+        const paletteResponse = await fetch("/api/color-palette", {
+          method: "POST",
+          body: paletteFormData,
+        });
+
+        if (paletteResponse.ok) {
+          const paletteResult = await paletteResponse.json();
+          colorPalette = paletteResult.palette;
+        }
+      }
+
+      for (let i = 0; i < planToGenerate.slides.length; i++) {
+        const slidePlan = planToGenerate.slides[i];
+
+        const formData = new FormData();
+        const fullPrompt = `${slidePlan.title}: ${slidePlan.content}`;
+        formData.append("prompt", fullPrompt);
+        formData.append("slideNumber", slidePlan.slideNumber.toString());
+
+        // Add design settings from plan
+        if (planToGenerate.background) {
+          formData.append("background", planToGenerate.background);
+        }
+        if (planToGenerate.useIcons !== undefined) {
+          formData.append("useIcons", planToGenerate.useIcons.toString());
+        }
+        // Add color palette if generated
+        if (colorPalette) {
+          formData.append("colorPalette", JSON.stringify(colorPalette));
+        }
+
+        const response = await fetch("/api/gen", {
+          method: "POST",
+          body: formData,
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            `Slide ${slidePlan.slideNumber} failed: ${result.error}`
+          );
+        }
+
+        setSlides((prev) => [
+          ...prev,
+          {
+            id: ulid(),
+            fabricJson: result.slide,
+            prompt: fullPrompt,
+          },
+        ]);
+
+        setGenerationProgress(((i + 1) / planToGenerate.slides.length) * 100);
+      }
+    } catch (err) {
+      console.error("Slide generation error:", err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
@@ -67,10 +145,7 @@ export default function Home() {
           <EditPlanPhase
             plan={plan}
             onPlanUpdated={setPlan}
-            onSlidesGenerated={(generatedSlides) => {
-              setSlides(generatedSlides);
-              setPhase("management");
-            }}
+            onGenerateSlides={() => handleGenerateAllSlides(plan)}
           />
         )}
 
@@ -78,7 +153,14 @@ export default function Home() {
           <ManagementPhase
             slides={slides}
             onSlidesUpdated={setSlides}
-            onBack={() => setPhase("plan")}
+            onBack={() => {
+              setPhase("plan");
+              setSlides([]);
+              setPlan(null);
+            }}
+            isGenerating={isGenerating}
+            generationProgress={generationProgress}
+            totalSlidesToGenerate={plan?.slides.length || 0}
           />
         )}
       </div>
@@ -93,9 +175,13 @@ function PlanPhase({
   onPlanGenerated: (plan: PresentationPlan) => void;
 }) {
   const [topic, setTopic] = useState("");
-  const [slideCount, setSlideCount] = useState(5);
+  const [slideCount, setSlideCount] = useState(1);
+  const [useCustomBackground, setUseCustomBackground] = useState(false);
+  const [background, setBackground] = useState("#ffffff");
+  const [useIcons, setUseIcons] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [partialPlan, setPartialPlan] = useState<PresentationPlan | null>(null);
 
   const handleGeneratePlan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,24 +189,72 @@ function PlanPhase({
 
     setIsLoading(true);
     setError(null);
+    setPartialPlan(null);
 
     try {
       const formData = new FormData();
       formData.append("topic", topic);
       formData.append("slideCount", slideCount.toString());
 
-      const response = await fetch("/api/plan", {
+      const response = await fetch("/api/plan-stream", {
         method: "POST",
         body: formData,
       });
 
-      const result = await response.json();
-
       if (!response.ok) {
-        throw new Error(result.error || "Failed to generate plan");
+        throw new Error("Failed to generate plan");
       }
 
-      onPlanGenerated(result.plan);
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedText = "";
+
+      if (!reader) {
+        throw new Error("No response body");
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        accumulatedText += chunk;
+
+        // Try to parse the accumulated JSON using jsonrepair
+        try {
+          const { jsonrepair } = await import("jsonrepair");
+          const repairedJson = jsonrepair(accumulatedText);
+          const parsed = JSON.parse(repairedJson);
+
+          // Update the partial plan as we receive more data
+          if (parsed && typeof parsed === "object") {
+            setPartialPlan(parsed as PresentationPlan);
+          }
+        } catch {
+          // Ignore parse errors - we'll try again with the next chunk
+        }
+      }
+
+      // Final parse
+      try {
+        const { jsonrepair } = await import("jsonrepair");
+        const repairedJson = jsonrepair(accumulatedText);
+        const finalPlan = JSON.parse(repairedJson);
+
+        if (!finalPlan || !finalPlan.slides || finalPlan.slides.length === 0) {
+          throw new Error("Failed to generate presentation plan");
+        }
+
+        // Add design settings to the plan
+        onPlanGenerated({
+          ...finalPlan,
+          background: useCustomBackground ? background : undefined,
+          useIcons,
+        });
+      } catch (err) {
+        throw new Error("Failed to parse final plan");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -135,10 +269,7 @@ function PlanPhase({
 
         <form onSubmit={handleGeneratePlan} className="space-y-6">
           <div>
-            <label
-              htmlFor="topic"
-              className="block text-sm font-medium mb-2"
-            >
+            <label htmlFor="topic" className="block text-sm font-medium mb-2">
               주제
             </label>
             <input
@@ -175,6 +306,78 @@ function PlanPhase({
             </div>
           </div>
 
+          <div className="border-t border-gray-700 pt-6">
+            <h3 className="text-lg font-semibold mb-4">디자인 설정</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="flex items-center gap-3 cursor-pointer mb-3">
+                  <input
+                    type="checkbox"
+                    checked={useCustomBackground}
+                    onChange={(e) => setUseCustomBackground(e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                    disabled={isLoading}
+                  />
+                  <div>
+                    <span className="text-sm font-medium">
+                      배경색 직접 지정
+                    </span>
+                    <p className="text-xs text-gray-400">
+                      꺼두면 AI가 주제에 맞는 배경색을 자동으로 선택합니다
+                    </p>
+                  </div>
+                </label>
+
+                {useCustomBackground && (
+                  <div className="ml-8">
+                    <div className="flex gap-3 items-center">
+                      <input
+                        id="background"
+                        type="color"
+                        value={background}
+                        onChange={(e) => setBackground(e.target.value)}
+                        className="w-16 h-10 rounded cursor-pointer bg-gray-700 border border-gray-600"
+                        disabled={isLoading}
+                      />
+                      <input
+                        type="text"
+                        value={background}
+                        onChange={(e) => setBackground(e.target.value)}
+                        placeholder="#ffffff"
+                        className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white font-mono text-sm"
+                        disabled={isLoading}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      전체 슬라이드에 적용될 배경색입니다. AI가 이 색상에 맞춰
+                      컬러 테마를 구성합니다.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useIcons}
+                    onChange={(e) => setUseIcons(e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                    disabled={isLoading}
+                  />
+                  <div>
+                    <span className="text-sm font-medium">아이콘 사용</span>
+                    <p className="text-xs text-gray-400">
+                      슬라이드에 SVG 아이콘을 추가할 수 있습니다 (최대
+                      1-2개/슬라이드)
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
           {error && (
             <div className="bg-red-900/50 border border-red-700 rounded-lg p-4 text-red-200">
               {error}
@@ -189,6 +392,42 @@ function PlanPhase({
             {isLoading ? "계획 생성 중..." : "슬라이드 계획 생성"}
           </button>
         </form>
+
+        {isLoading && partialPlan && (
+          <div className="mt-6 bg-gray-700 rounded-lg p-6">
+            <h3 className="text-lg font-semibold mb-4">
+              생성 중... ({partialPlan.slides?.length || 0}개 슬라이드)
+            </h3>
+            {partialPlan.theme && (
+              <p className="text-sm text-gray-300 mb-4">
+                <strong>주제:</strong> {partialPlan.theme}
+              </p>
+            )}
+            {partialPlan.slides && partialPlan.slides.length > 0 && (
+              <div className="space-y-3">
+                {partialPlan.slides.map((slide, index) => (
+                  <div
+                    key={index}
+                    className="bg-gray-600 rounded p-3 animate-pulse"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs text-gray-400">
+                        슬라이드 {slide.slideNumber}
+                      </span>
+                      <span className="text-xs text-gray-500 px-2 py-0.5 bg-gray-500 rounded">
+                        {slide.slideType}
+                      </span>
+                    </div>
+                    <p className="font-medium text-sm">{slide.title}</p>
+                    <p className="text-xs text-gray-300 mt-1">
+                      {slide.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -198,66 +437,20 @@ function PlanPhase({
 function EditPlanPhase({
   plan,
   onPlanUpdated,
-  onSlidesGenerated,
+  onGenerateSlides,
 }: {
   plan: PresentationPlan;
   onPlanUpdated: (plan: PresentationPlan) => void;
-  onSlidesGenerated: (slides: Slide[]) => void;
+  onGenerateSlides: () => void;
 }) {
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationProgress, setGenerationProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleUpdateSlide = (index: number, field: keyof SlidePlan, value: string) => {
+  const handleUpdateSlide = (
+    index: number,
+    field: keyof SlidePlan,
+    value: string
+  ) => {
     const updatedSlides = [...plan.slides];
     updatedSlides[index] = { ...updatedSlides[index], [field]: value };
     onPlanUpdated({ ...plan, slides: updatedSlides });
-  };
-
-  const handleGenerateAllSlides = async () => {
-    setIsGenerating(true);
-    setError(null);
-    setGenerationProgress(0);
-
-    const generatedSlides: Slide[] = [];
-
-    try {
-      for (let i = 0; i < plan.slides.length; i++) {
-        const slidePlan = plan.slides[i];
-
-        const formData = new FormData();
-        // Combine title and content for the prompt
-        const fullPrompt = `${slidePlan.title}: ${slidePlan.content}`;
-        formData.append("prompt", fullPrompt);
-        formData.append("slideNumber", slidePlan.slideNumber.toString());
-
-        const response = await fetch("/api/gen", {
-          method: "POST",
-          body: formData,
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            `Slide ${slidePlan.slideNumber} failed: ${result.error}`
-          );
-        }
-
-        generatedSlides.push({
-          id: ulid(),
-          fabricJson: result.slide,
-          prompt: fullPrompt,
-        });
-
-        setGenerationProgress(((i + 1) / plan.slides.length) * 100);
-      }
-
-      onSlidesGenerated(generatedSlides);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setIsGenerating(false);
-    }
   };
 
   return (
@@ -267,6 +460,31 @@ function EditPlanPhase({
         <p className="text-gray-300 mb-2">
           <strong>주제:</strong> {plan.theme}
         </p>
+
+        {/* Display design settings */}
+        <div className="flex gap-4 mb-4">
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <span>배경색:</span>
+            {plan.background ? (
+              <>
+                <div
+                  className="w-6 h-6 rounded border border-gray-600"
+                  style={{ backgroundColor: plan.background }}
+                />
+                <span className="font-mono text-xs">{plan.background}</span>
+              </>
+            ) : (
+              <span className="text-xs italic">AI 자동 선택</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <span>아이콘:</span>
+            <span className="font-medium">
+              {plan.useIcons ? "사용함" : "사용 안 함"}
+            </span>
+          </div>
+        </div>
+
         <p className="text-gray-400 text-sm mb-6">
           각 슬라이드의 내용을 수정할 수 있습니다. 준비가 되면 "모든 슬라이드
           생성" 버튼을 클릭하세요.
@@ -289,9 +507,7 @@ function EditPlanPhase({
 
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium mb-1">
-                    제목
-                  </label>
+                  <label className="block text-sm font-medium mb-1">제목</label>
                   <input
                     type="text"
                     value={slide.title}
@@ -320,35 +536,11 @@ function EditPlanPhase({
           ))}
         </div>
 
-        {error && (
-          <div className="bg-red-900/50 border border-red-700 rounded-lg p-4 text-red-200 mb-6">
-            {error}
-          </div>
-        )}
-
-        {isGenerating && (
-          <div className="mb-6">
-            <div className="flex justify-between text-sm mb-2">
-              <span>슬라이드 생성 중...</span>
-              <span>{Math.round(generationProgress)}%</span>
-            </div>
-            <div className="w-full bg-gray-600 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${generationProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
         <button
-          onClick={handleGenerateAllSlides}
-          disabled={isGenerating}
-          className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+          onClick={onGenerateSlides}
+          className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
         >
-          {isGenerating
-            ? "슬라이드 생성 중..."
-            : `모든 슬라이드 생성 (${plan.slides.length}장)`}
+          모든 슬라이드 생성 ({plan.slides.length}장)
         </button>
       </div>
     </div>
@@ -360,10 +552,16 @@ function ManagementPhase({
   slides,
   onSlidesUpdated,
   onBack,
+  isGenerating,
+  generationProgress,
+  totalSlidesToGenerate,
 }: {
   slides: Slide[];
   onSlidesUpdated: (slides: Slide[]) => void;
   onBack: () => void;
+  isGenerating?: boolean;
+  generationProgress?: number;
+  totalSlidesToGenerate?: number;
 }) {
   const slideCanvasRefs = useRef<Map<string, SlideCanvasRef>>(new Map());
   const [prompt, setPrompt] = useState("");
@@ -481,55 +679,108 @@ function ManagementPhase({
         </button>
       </div>
 
-      <div className="bg-gray-800 rounded-lg p-6 shadow-xl mb-8">
-        <h3 className="text-xl font-bold mb-4">슬라이드 추가</h3>
-        <Form onSubmit={handleGenerateSlide} className="flex gap-4">
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="추가 슬라이드 내용 입력..."
-            className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white"
-            disabled={isLoading}
-          />
-          <button
-            type="submit"
-            disabled={isLoading || !prompt.trim()}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
-          >
-            {isLoading ? "생성 중..." : "슬라이드 추가"}
-          </button>
-        </Form>
-
-        {error && (
-          <div className="mt-4 bg-red-900/50 border border-red-700 rounded-lg p-4 text-red-200">
-            {error}
+      {isGenerating && (
+        <div className="bg-gray-800 rounded-lg p-6 shadow-xl mb-8">
+          <h3 className="text-xl font-bold mb-4">슬라이드 생성 중...</h3>
+          <div className="mb-4">
+            <div className="flex justify-between text-sm mb-2">
+              <span>
+                생성됨: {slides.length} / {totalSlidesToGenerate}
+              </span>
+              <span>{Math.round(generationProgress || 0)}%</span>
+            </div>
+            <div className="w-full bg-gray-600 rounded-full h-3">
+              <div
+                className="bg-green-600 h-3 rounded-full transition-all duration-300"
+                style={{ width: `${generationProgress || 0}%` }}
+              />
+            </div>
           </div>
-        )}
-      </div>
+          <p className="text-sm text-gray-400">
+            생성된 슬라이드는 실시간으로 아래에 표시됩니다.
+          </p>
+        </div>
+      )}
+
+      {!isGenerating && (
+        <div className="bg-gray-800 rounded-lg p-6 shadow-xl mb-8">
+          <h3 className="text-xl font-bold mb-4">슬라이드 추가</h3>
+          <Form onSubmit={handleGenerateSlide} className="flex gap-4">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="추가 슬라이드 내용 입력..."
+              className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white"
+              disabled={isLoading}
+            />
+            <button
+              type="submit"
+              disabled={isLoading || !prompt.trim()}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+            >
+              {isLoading ? "생성 중..." : "슬라이드 추가"}
+            </button>
+          </Form>
+
+          {error && (
+            <div className="mt-4 bg-red-900/50 border border-red-700 rounded-lg p-4 text-red-200">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-col gap-8">
-        {slides.length === 0 ? (
+        {slides.length === 0 && !isGenerating ? (
           <div className="text-center py-12 text-gray-400">
             생성된 슬라이드가 없습니다.
           </div>
         ) : (
-          slides.map((slide, index) => (
-            <SlideCanvas
-              key={slide.id}
-              ref={(ref) => {
-                if (ref) {
-                  slideCanvasRefs.current.set(slide.id, ref);
-                } else {
-                  slideCanvasRefs.current.delete(slide.id);
-                }
-              }}
-              slideId={slide.id}
-              slideNumber={index + 1}
-              fabricJson={slide.fabricJson}
-              prompt={slide.prompt}
-            />
-          ))
+          <>
+            {slides.map((slide, index) => (
+              <SlideCanvas
+                key={slide.id}
+                ref={(ref) => {
+                  if (ref) {
+                    slideCanvasRefs.current.set(slide.id, ref);
+                  } else {
+                    slideCanvasRefs.current.delete(slide.id);
+                  }
+                }}
+                slideId={slide.id}
+                slideNumber={index + 1}
+                fabricJson={slide.fabricJson}
+                prompt={slide.prompt}
+              />
+            ))}
+            {isGenerating && (
+              <div className="bg-gray-800 rounded-lg p-4 shadow-lg w-fit mx-auto">
+                <div className="mb-2 flex justify-between items-center">
+                  <h3 className="text-lg font-semibold">
+                    슬라이드 {slides.length + 1}
+                  </h3>
+                </div>
+                <div
+                  className="relative bg-gray-700 rounded overflow-hidden animate-pulse"
+                  style={{ width: "1280px", height: "720px" }}
+                >
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500 mx-auto mb-4"></div>
+                      <p className="text-gray-300 font-semibold text-lg">
+                        슬라이드 생성 중...
+                      </p>
+                      <p className="text-gray-400 text-sm mt-2">
+                        AI가 디자인을 만들고 있습니다
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">1280 x 720px</p>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -572,18 +823,13 @@ const SlideCanvas = forwardRef<
         obj.type === "Image" && obj.data?.isIcon && obj.data?.iconName
     );
 
-    console.log("Found placeholder images:", placeholderImages.length);
-    console.log("Found icon images:", iconImages.length);
-
     if (placeholderImages.length === 0 && iconImages.length === 0) {
       return;
     }
 
     setIsGeneratingImages(true);
     const totalItems = iconImages.length + placeholderImages.length;
-    setImageGenerationStatus(
-      `이미지 생성 중... (0/${totalItems})`
-    );
+    setImageGenerationStatus(`이미지 생성 중... (0/${totalItems})`);
 
     let currentIndex = 0;
 
@@ -592,12 +838,6 @@ const SlideCanvas = forwardRef<
       const iconObj = iconImages[i];
       try {
         const objectIndex = objects.indexOf(iconObj);
-
-        console.log(
-          `Generating icon ${i + 1}:`,
-          iconObj.data.iconName,
-          iconObj.data.iconColor
-        );
 
         currentIndex++;
         setImageGenerationStatus(
@@ -625,7 +865,6 @@ const SlideCanvas = forwardRef<
         }
 
         const result = await response.json();
-        console.log("Icon generated:", result.url);
 
         const canvasObjects = canvas.getObjects();
         const targetIndex = objects.indexOf(iconObj);
@@ -652,7 +891,6 @@ const SlideCanvas = forwardRef<
               } catch (error) {
                 retries--;
                 if (retries > 0) {
-                  console.log(`Icon load retry ${3 - retries}/3`);
                   await new Promise((resolve) => setTimeout(resolve, 200));
                 } else {
                   throw error;
@@ -689,11 +927,6 @@ const SlideCanvas = forwardRef<
       try {
         const objectIndex = objects.indexOf(placeholderObj);
 
-        console.log(
-          `Generating image ${i + 1}:`,
-          placeholderObj.data.imagePrompt
-        );
-
         currentIndex++;
         setImageGenerationStatus(
           `이미지 생성 중... (${currentIndex}/${totalItems})`
@@ -719,35 +952,16 @@ const SlideCanvas = forwardRef<
         }
 
         const result = await response.json();
-        console.log(
-          "Image generated:",
-          result.url,
-          result.cached ? "(cached)" : "(new)"
-        );
 
         const canvasObjects = canvas.getObjects();
         const targetIndex = objects.indexOf(placeholderObj);
-
-        console.log(
-          "Target index:",
-          targetIndex,
-          "Canvas objects:",
-          canvasObjects.length
-        );
-
         if (targetIndex >= 0 && targetIndex < canvasObjects.length) {
           const fabricObj = canvasObjects[targetIndex] as any;
 
-          console.log("Fabric object type:", fabricObj.type);
-
           if (fabricObj.type === "image") {
-            console.log("Replacing image object with:", result.url);
-
             const imageUrl = result.url.startsWith("http")
               ? result.url
               : `${window.location.origin}${result.url}`;
-
-            console.log("Loading image from:", imageUrl);
 
             const { FabricImage } = await import("fabric");
             let newImg;
@@ -759,17 +973,10 @@ const SlideCanvas = forwardRef<
                 newImg = await FabricImage.fromURL(cacheBustUrl, {
                   crossOrigin: "anonymous",
                 });
-                console.log(
-                  "Image loaded successfully on attempt",
-                  4 - retries
-                );
                 break;
               } catch (error) {
                 retries--;
                 if (retries > 0) {
-                  console.log(
-                    `Image load failed, retrying... (${retries} attempts left)`
-                  );
                   await new Promise((resolve) => setTimeout(resolve, 200));
                 } else {
                   console.error(
@@ -808,7 +1015,6 @@ const SlideCanvas = forwardRef<
               }
             });
 
-            console.log("Image loaded and inserted successfully");
             canvas.renderAll();
           } else {
             console.warn("Object is not an image:", fabricObj);
@@ -863,7 +1069,10 @@ const SlideCanvas = forwardRef<
       <div className="mb-2 flex justify-between items-center">
         <h3 className="text-lg font-semibold">슬라이드 {slideNumber}</h3>
       </div>
-      <div className="relative bg-white rounded overflow-hidden" style={{ width: '1280px', height: '720px' }}>
+      <div
+        className="relative bg-white rounded overflow-hidden"
+        style={{ width: "1280px", height: "720px" }}
+      >
         <canvas ref={canvasRef} />
         {isGeneratingImages && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center">

@@ -44,7 +44,7 @@ class FabricObject(BaseModel):
     strokeWidth: float = 0
     text: Optional[str] = ""
     fontSize: float = 16
-    fontFamily: str = "Arial"
+    fontFamily: str = "Malgun Gothic"
     fontWeight: str = "normal"
     textAlign: str = "left"
     opacity: float = 1.0
@@ -229,7 +229,9 @@ async def download_image(url: str) -> BytesIO:
         # Assuming the web server is running in the project root
         # /upload/images/xxx.png -> ../web/public/upload/images/xxx.png
         local_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),  # Go up from py/ to project root
+            os.path.dirname(
+                os.path.dirname(__file__)
+            ),  # Go up from py/ to project root
             "web",
             "public",
             url.lstrip("/"),
@@ -272,7 +274,12 @@ async def create_pptx_from_fabric(slides_data: List[FabricSlide]) -> str:
                 # Handle Line type separately
                 if obj.type == "Line":
                     # Line uses x1, y1, x2, y2 coordinates
-                    if obj.x1 is None or obj.y1 is None or obj.x2 is None or obj.y2 is None:
+                    if (
+                        obj.x1 is None
+                        or obj.y1 is None
+                        or obj.x2 is None
+                        or obj.y2 is None
+                    ):
                         print(f"⚠️  Skipping Line object with null coordinates")
                         continue
 
@@ -444,7 +451,11 @@ async def create_pptx_from_fabric(slides_data: List[FabricSlide]) -> str:
 
                         # Add image to slide
                         picture = slide.shapes.add_picture(
-                            image_stream, left_inches, top_inches, width_inches, height_inches
+                            image_stream,
+                            left_inches,
+                            top_inches,
+                            width_inches,
+                            height_inches,
                         )
 
                         # Apply rotation if needed

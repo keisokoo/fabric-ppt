@@ -52,8 +52,6 @@ export const action = async (args: ActionFunctionArgs) => {
       );
     }
 
-    console.log(`Planning presentation: "${topic}" with ${slideCount} slides`);
-
     const systemPrompt = `You are an expert presentation planner and content strategist.
 
 Your role:
@@ -88,17 +86,26 @@ The slide generator (gen.ts) will:
 - Design the layout and visual style
 - Add icons, images, and decorative elements`;
 
-    // Generate presentation plan
-    const response = await openai.responses.parse({
-      model: "gpt-5.2",
-      input: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: `Create a presentation content plan for the following topic:
+    // Create a readable stream to forward text chunks to the client
+    const readableStream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+
+        try {
+          const stream = openai.responses
+            .stream({
+              model: "gpt-5.2",
+              reasoning: {
+                effort: "none",
+              },
+              input: [
+                {
+                  role: "system",
+                  content: systemPrompt,
+                },
+                {
+                  role: "user",
+                  content: `Create a presentation content plan for the following topic:
 
 Topic: ${topic}
 Number of slides: ${slideCount}
@@ -116,25 +123,40 @@ Remember:
 - Use web search to understand the topic better if needed
 
 Generate a complete presentation plan with ${slideCount} slides.`,
-        },
-      ],
-      text: {
-        format: zodTextFormat(presentationPlanSchema, "presentation_plan"),
+                },
+              ],
+              text: {
+                format: zodTextFormat(presentationPlanSchema, "presentation_plan"),
+              },
+            })
+            .on("response.output_text.delta", (event) => {
+              // Send each chunk to the client
+              controller.enqueue(encoder.encode(event.delta));
+            })
+            .on("response.output_text.done", () => {
+              // Close the stream when done
+              controller.close();
+            })
+            .on("error", (event) => {
+              console.error("Stream error:", event);
+              controller.error(event);
+            });
+
+          // Wait for the stream to complete
+          await stream.finalResponse();
+        } catch (error) {
+          console.error("Error in stream:", error);
+          controller.error(error);
+        }
       },
     });
 
-    const plan = response.output_parsed;
-
-    if (!plan || !plan.slides || plan.slides.length === 0) {
-      throw new Error("Failed to generate presentation plan");
-    }
-
-    console.log(`✅ Generated plan for ${plan.slides.length} slides`);
-    console.log(`Theme: ${plan.theme}`);
-
-    return data({
-      success: true,
-      plan: plan,
+    // Return the streaming response
+    return new Response(readableStream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+      },
     });
   } catch (error) {
     console.error("Error planning presentation:", error);
